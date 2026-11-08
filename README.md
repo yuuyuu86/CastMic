@@ -19,7 +19,7 @@ iPhone / Mac を Windows の **マイク** と **スピーカー** として使�
 ## 現在の状態
 
 - Apple アプリ / Windows アプリ: 基本機能実装済み (Windows 側は未実機検証)
-- 自作ドライバ: コード実装済み・未ビルド (`driver/README.md`)。動くまでは Windows アプリの **VB-CABLE フォールバック** で動作確認できる。
+- 自作ドライバ: CI でビルド・パッケージ化まで通る。実機未検証 (`driver/README.md`)。動くまでは Windows アプリの **VB-CABLE フォールバック** で動作確認できる。
 
 ## 機能
 
@@ -42,6 +42,8 @@ iPhone / Mac を Windows の **マイク** と **スピーカー** として使�
 - 初回接続時は、iPhone/Mac に出る「確認コード」が Windows の表示と一致するか確認すると確実
 
 ## ビルド
+
+GitHub Actions (`.github/workflows/build.yml`) が push ごとに 3 つともビルドし、Windows アプリとドライバを Artifacts に置く。
 
 ```bash
 cd apple && xcodegen && open CastMic.xcodeproj

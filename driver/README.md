@@ -18,13 +18,15 @@ Windows に **CastMic Microphone** (入力) と **CastMic Speaker** (出力) を
 
 ## 状態
 
-コードは書いたが **未ビルド・未検証** (macOS 上で作成したため)。初回ビルドでコンパイルエラーが出る可能性が高い。
+GitHub Actions でビルド・テスト署名・パッケージ化まで通る。**実機 / VM での動作は未検証。**
 
 ## ビルド・インストール (Windows)
 
 必要: Visual Studio 2022 + Windows Driver Kit (WDK)。**VM での検証を強く推奨** (バグは BSOD になる)。
 
-1. `CastMicAudio.vcxproj` を Visual Studio で開き、`Release|x64` でビルド (テスト署名が自動で付く)
+1. ビルド済みのものを使う場合: GitHub の Actions → 最新の build → Artifacts から `CastMicAudio-driver-x64` をダウンロード。
+   自分でビルドする場合: `CastMicAudio.vcxproj` を Visual Studio で開き、`Release|x64` でビルド (テスト署名が自動で付く)
+   - テスト証明書 `CastMicAudio.cer` を「信頼されたルート証明機関」と「信頼された発行元」(ローカルコンピューター) にインポートする
 2. テスト署名を許可して再起動 (管理者):
    ```
    bcdedit /set testsigning on
