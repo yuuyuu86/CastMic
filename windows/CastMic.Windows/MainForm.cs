@@ -30,6 +30,7 @@ public sealed class MainForm : Form
     IAudioBridge? _bridge;
     CastServer? _server;
     MdnsAdvertiser? _mdns;
+    VirtualCamera? _camera;
     X509Certificate2? _cert;
     string _codeValue = "";
     bool _quitting, _hasClients;
@@ -79,7 +80,7 @@ public sealed class MainForm : Form
         {
             UnregisterHotKey(Handle, HotkeyId);
             _tray.Visible = false;
-            _mdns?.Dispose(); _server?.Dispose(); _bridge?.Dispose();
+            _mdns?.Dispose(); _server?.Dispose(); _camera?.Dispose(); _bridge?.Dispose();
         };
     }
 
@@ -139,6 +140,14 @@ public sealed class MainForm : Form
             UpdateTray();
             Notify(muted ? "マイクをミュートしました" : "マイクのミュートを解除しました");
         });
+        _camera = new VirtualCamera();
+        if (_camera.Start())
+        {
+            AppendLog("仮想カメラ「CastMic Camera」を登録しました。");
+            _server.CameraFrame += _camera.PushJpeg;
+        }
+        else AppendLog(_camera.Error ?? "仮想カメラを開始できませんでした。");
+
         _server.Start();
         _status.Text = $"待機中 (TCP {CastServer.Port})";
 

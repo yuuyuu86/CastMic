@@ -13,7 +13,8 @@ public enum FrameType : byte
     MicOpus = 6,       // Opus 1 パケット (20ms, mono)
     SpeakerOpus = 7,   // Opus 1 パケット (20ms, stereo)
     MuteState = 8,     // u8: 1 = ミュート
-    Roles = 9,         // JSON {"mic":bool,"speaker":bool}
+    Roles = 9,         // JSON {"mic":bool,"speaker":bool,"camera":bool}
+    VideoJpeg = 10,    // カメラ映像 1 フレーム (JPEG)
 }
 
 public static class Frame
@@ -23,6 +24,7 @@ public static class Frame
     public const int OpusFrame = 960; // 20ms
     public const int MaxPayload = 64 * 1024;
     public const int MaxHelloPayload = 1024;
+    public const int MaxVideoPayload = 1 << 20;
 
     public static byte[] Encode(FrameType type, ReadOnlySpan<byte> payload)
     {
@@ -39,7 +41,7 @@ public static class Frame
         await s.ReadExactlyAsync(header, ct);
         if (header[0] != 0x43 || header[1] != 0x4D) throw new InvalidDataException("bad magic");
         var len = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(4));
-        if (len > maxPayload) throw new InvalidDataException("frame too large");
+        if (len > (header[2] == (byte)FrameType.VideoJpeg ? Math.Max(maxPayload, MaxVideoPayload) : maxPayload)) throw new InvalidDataException("frame too large");
         var payload = new byte[len];
         await s.ReadExactlyAsync(payload, ct);
         return ((FrameType)header[2], payload);

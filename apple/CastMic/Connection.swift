@@ -101,6 +101,22 @@ final class Connection: @unchecked Sendable {
         conn.send(content: Frame.encode(type, payload), completion: .idempotent)
     }
 
+    private var inflight = 0
+
+    /// 映像用: 送信待ちが溜まっていたら捨てる (遅延と音声の詰まりを防ぐ)
+    func sendDroppable(_ type: FrameType, _ payload: Data, maxInFlight: Int = 2) {
+        let ok = peer.lock.withLock { () -> Bool in
+            guard inflight < maxInFlight else { return false }
+            inflight += 1
+            return true
+        }
+        guard ok else { return }
+        conn.send(content: Frame.encode(type, payload), completion: .contentProcessed { [weak self] _ in
+            guard let self else { return }
+            self.peer.lock.withLock { self.inflight -= 1 }
+        })
+    }
+
     func cancel() { conn.cancel() }
 
     private func receive() {

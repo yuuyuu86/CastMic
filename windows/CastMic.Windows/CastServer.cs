@@ -41,6 +41,9 @@ public sealed class CastServer : IDisposable
     public event Action<IReadOnlyList<string>>? ClientsChanged;
     public event Action<string>? ClientHello;
     public event Action<bool>? MuteChanged;
+    /// カメラ役の端末から届いた JPEG
+    public event Action<byte[]>? CameraFrame;
+    Client? _cameraOwner;
 
     sealed class Client(TcpClient tcp, string endpoint)
     {
@@ -54,15 +57,15 @@ public sealed class CastServer : IDisposable
         /// 逆方向 (Mac が Windows のマイク / スピーカーを使う)
         public bool Reverse;
         public int UpChannels = 1;
-        public volatile bool WantsMic = true, WantsSpeaker = true;
+        public volatile bool WantsMic = true, WantsSpeaker = true, WantsCamera;
         public IOpusDecoder? MicDecoder;
         public IOpusEncoder? SpeakerEncoder;
         public readonly short[] SpkAcc = new short[Frame.OpusFrame * 2];
         public int SpkAccCount;
         public readonly object SpkLock = new();
-        public string Label => Reverse
+        public string Label => (WantsCamera ? "📷 " : "") + (Reverse
             ? $"{Name} (逆方向: Windows のマイク/スピーカーを使用)"
-            : $"{Name} ({(WantsMic ? "マイク" : "")}{(WantsMic && WantsSpeaker ? "+" : "")}{(WantsSpeaker ? "スピーカー" : "")})";
+            : $"{Name} ({(WantsMic ? "マイク" : "")}{(WantsMic && WantsSpeaker ? "+" : "")}{(WantsSpeaker ? "スピーカー" : "")})");
     }
 
     public CastServer(IAudioBridge bridge, string pairingCode, X509Certificate2 cert, Func<IAudioBridge>? reverseFactory = null)
@@ -181,6 +184,8 @@ public sealed class CastServer : IDisposable
                     client.WantsMic = hello.Mic;
                     client.WantsSpeaker = hello.Speaker;
                     client.Reverse = hello.Reverse;
+                    client.WantsCamera = hello.Camera;
+                    if (client.WantsCamera) _cameraOwner = client;
                     client.UpChannels = hello.Reverse ? 2 : 1;
                     if (client.Opus)
                     {
@@ -236,6 +241,9 @@ public sealed class CastServer : IDisposable
                             sink.WriteMic(bytes);
                         }
                         break;
+                    case FrameType.VideoJpeg:
+                        if (client == _cameraOwner) CameraFrame?.Invoke(payload);
+                        break;
                     case FrameType.Ping:
                         if (payload.Length == 8) Enqueue(client, FrameType.Ping, payload);
                         break;
@@ -243,12 +251,15 @@ public sealed class CastServer : IDisposable
                         if (payload.Length == 1) Muted = payload[0] != 0;
                         break;
                     case FrameType.Roles:
-                        if (Hello.ParseRoles(payload) is var (mic, spk))
+                        if (Hello.ParseRoles(payload) is var (mic, spk, cam))
                         {
                             lock (_lock)
                             {
                                 client.WantsMic = mic;
                                 client.WantsSpeaker = spk;
+                                client.WantsCamera = cam;
+                                if (cam) _cameraOwner = client;
+                                else if (_cameraOwner == client) _cameraOwner = _clients.LastOrDefault(c => c.WantsCamera);
                                 if (mic && !client.Reverse) _micOwner = client;
                                 else if (_micOwner == client) _micOwner = _clients.LastOrDefault(c => c.WantsMic && !c.Reverse);
                             }
@@ -274,6 +285,7 @@ public sealed class CastServer : IDisposable
             {
                 removed = _clients.Remove(client);
                 if (_micOwner == client) _micOwner = _clients.LastOrDefault(c => c.WantsMic && !c.Reverse);
+                if (_cameraOwner == client) _cameraOwner = _clients.LastOrDefault(c => c.WantsCamera);
                 // 逆方向クライアントがいなくなったら実デバイスを閉じる
                 if (_reverse != null && !_clients.Any(c => c.Reverse)) { _reverse.Dispose(); _reverse = null; }
             }
@@ -357,7 +369,7 @@ public sealed class CastServer : IDisposable
         lock (_lock) { _reverse?.Dispose(); _reverse = null; }
     }
 
-    sealed record Hello(string Name, string? Code, string Codec, bool Mic, bool Speaker, int BufferMs, bool Reverse)
+    sealed record Hello(string Name, string? Code, string Codec, bool Mic, bool Speaker, int BufferMs, bool Reverse, bool Camera)
     {
         public static Hello? Parse(byte[] payload)
         {
@@ -371,18 +383,19 @@ public sealed class CastServer : IDisposable
                 // ログや通知に出すので制御文字を除去して短くする
                 var name = new string((Str("name") ?? "?").Where(ch => !char.IsControl(ch)).Take(64).ToArray());
                 var codec = Str("codec") == "opus" ? "opus" : "pcm";
-                return new Hello(name, Str("code"), codec, Bool("mic", true), Bool("speaker", true), buf, Str("mode") == "reverse");
+                return new Hello(name, Str("code"), codec, Bool("mic", true), Bool("speaker", true), buf, Str("mode") == "reverse", Bool("camera", false));
             }
             catch (JsonException) { return null; }
         }
 
-        public static (bool mic, bool speaker)? ParseRoles(byte[] payload)
+        public static (bool mic, bool speaker, bool camera)? ParseRoles(byte[] payload)
         {
             try
             {
                 using var doc = JsonDocument.Parse(payload);
                 var r = doc.RootElement;
-                return (r.GetProperty("mic").GetBoolean(), r.GetProperty("speaker").GetBoolean());
+                bool cam = r.TryGetProperty("camera", out var c) && c.ValueKind == JsonValueKind.True;
+                return (r.GetProperty("mic").GetBoolean(), r.GetProperty("speaker").GetBoolean(), cam);
             }
             catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException) { return null; }
         }

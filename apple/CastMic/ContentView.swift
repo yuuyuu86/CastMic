@@ -76,6 +76,23 @@ struct ContentView: View {
                     Toggle(speakerToggle, isOn: $session.speakerEnabled)
                 }
 
+                if !rev {
+                    Section {
+                        Toggle("Web カメラとして使う", isOn: $session.cameraEnabled)
+                        #if os(iOS)
+                        Picker("カメラ", selection: $session.cameraFront) {
+                            Text("前面").tag(true)
+                            Text("背面").tag(false)
+                        }
+                        .pickerStyle(.segmented)
+                        #endif
+                    } header: {
+                        Text("カメラ")
+                    } footer: {
+                        Text("Windows 11 の「CastMic Camera」として使えます。iPhone は横向きにして、画面を開いたままにしてください。")
+                    }
+                }
+
                 Section {
                     VStack(alignment: .leading) {
                         HStack {

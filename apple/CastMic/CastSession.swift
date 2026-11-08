@@ -41,6 +41,14 @@ final class CastSession {
     var autoReconnect = CastSession.pref("autoReconnect", true) { didSet { save("autoReconnect", autoReconnect) } }
     /// 音声圧縮 (Opus)。次回接続時から有効
     var useOpus = CastSession.pref("useOpus", true) { didSet { save("useOpus", useOpus) } }
+    /// カメラを Windows の Web カメラとして使う
+    var cameraEnabled = CastSession.pref("cameraEnabled", false) {
+        didSet { save("cameraEnabled", cameraEnabled); updateCamera(); sendRoles() }
+    }
+    /// フロントカメラを使う (iOS)
+    var cameraFront = CastSession.pref("cameraFront", true) {
+        didSet { save("cameraFront", cameraFront); if camera != nil { stopCamera(); updateCamera() } }
+    }
     /// 逆方向 (macOS のみ): Windows のマイク/スピーカーを Mac で使う。次回接続時から有効
     var reverseMode = CastSession.pref("reverseMode", false) { didSet { save("reverseMode", reverseMode) } }
     /// 遅延の上限 (ms)。小さいほど低遅延、大きいほど途切れにくい
@@ -71,6 +79,7 @@ final class CastSession {
     private var audio: AudioIO?
     private var encoder: OpusEncoder?
     private var decoder: OpusDecoder?
+    private var camera: CameraStreamer?
     private var pingTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
 
@@ -239,6 +248,7 @@ final class CastSession {
     }
 
     private func teardown() {
+        stopCamera()
         pingTask?.cancel(); pingTask = nil
         audio?.stop(); audio = nil
         connection?.cancel(); connection = nil
@@ -260,6 +270,7 @@ final class CastSession {
                 "mic": micEnabled, "speaker": speakerEnabled, "bufferMs": bufferMs,
                 "mode": audio?.reverse == true ? "reverse" : "normal",
                 "upChannels": Int(audio?.upChannels ?? 1),
+                "camera": cameraEnabled,
             ]
             connection?.send(.hello, (try? JSONSerialization.data(withJSONObject: hello)) ?? Data())
             do {
@@ -267,6 +278,7 @@ final class CastSession {
                 status = .connected
                 everConnected = true
                 startPing()
+                updateCamera()
                 onChange?()
             } catch {
                 candidates = []
@@ -340,8 +352,29 @@ final class CastSession {
 
     private func sendRoles() {
         guard status == .connected else { return }
-        let roles = try? JSONSerialization.data(withJSONObject: ["mic": micEnabled, "speaker": speakerEnabled])
+        let roles = try? JSONSerialization.data(withJSONObject: ["mic": micEnabled, "speaker": speakerEnabled, "camera": cameraEnabled])
         connection?.send(.roles, roles ?? Data())
+    }
+
+    /// 接続中かつカメラ有効ならカメラを動かす
+    private func updateCamera() {
+        guard status == .connected, cameraEnabled else { stopCamera(); return }
+        guard camera == nil, let conn = connection else { return }
+        let cam = CameraStreamer(front: cameraFront)
+        cam.onFrame = { [weak conn] jpeg in conn?.sendDroppable(.videoJpeg, jpeg) }
+        camera = cam
+        Task {
+            do { try await cam.start() } catch {
+                stopCamera()
+                cameraEnabled = false
+                status = .error(error.localizedDescription)
+            }
+        }
+    }
+
+    private func stopCamera() {
+        camera?.stop()
+        camera = nil
     }
 
     private func startPing() {

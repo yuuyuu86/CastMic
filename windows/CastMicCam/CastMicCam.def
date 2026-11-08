@@ -1,0 +1,8 @@
+LIBRARY CastMicCam
+EXPORTS
+    DllGetClassObject   PRIVATE
+    DllCanUnloadNow     PRIVATE
+    DllRegisterServer   PRIVATE
+    DllUnregisterServer PRIVATE
+    CastMicCam_Start
+    CastMicCam_Stop

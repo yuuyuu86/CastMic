@@ -11,6 +11,7 @@ enum FrameType: UInt8 {
     case speakerOpus = 7
     case muteState = 8
     case roles = 9
+    case videoJpeg = 10
 }
 
 enum Frame {
