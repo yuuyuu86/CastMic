@@ -74,6 +74,8 @@ final class CastSession {
     private var candidates: [Candidate] = []
     /// 今回の接続先に一度でもつながったか (初回接続の失敗は再試行せずエラーにする)
     private var everConnected = false
+    /// 接続先ごとの失敗理由 (エラー表示用)
+    private var attemptErrors: [String] = []
     private var candidateIndex = 0
     private var connection: Connection?
     private var audio: AudioIO?
@@ -119,6 +121,7 @@ final class CastSession {
         candidates = list
         candidateIndex = 0
         everConnected = false
+        attemptErrors = []
         open()
     }
 
@@ -317,6 +320,9 @@ final class CastSession {
                 status = .error("オーディオ開始失敗: \(error.localizedDescription)")
             }
         case .failed(let m):
+            if status != .connected, candidates.indices.contains(candidateIndex) {
+                attemptErrors.append("・\(candidates[candidateIndex].label): \(Self.friendly(m))")
+            }
             // まだつながっていない候補なら次を試す
             if status != .connected, candidateIndex + 1 < candidates.count {
                 teardown()
@@ -370,7 +376,8 @@ final class CastSession {
             let first = !everConnected
             candidates = []
             status = .error(first
-                ? "PC に接続できませんでした。Windows で CastMic が起動しているか、同じネットワークにいるか確認してください。"
+                ? "PC に接続できませんでした。\n" + attemptErrors.joined(separator: "\n")
+                    + "\n\nWindows で CastMic が起動しているか、同じ Wi-Fi か、Windows のファイアウォールで CastMic が許可されているか確認してください。"
                 : message)
             onChange?()
             return
@@ -429,6 +436,15 @@ final class CastSession {
         UserDefaults.standard.object(forKey: key) as? T ?? def
     }
     private func save(_ key: String, _ v: Any) { UserDefaults.standard.set(v, forKey: key) }
+
+    /// Network.framework のエラー文を分かりやすく
+    nonisolated static func friendly(_ m: String) -> String {
+        if m.contains("Connection refused") || m.contains("error 61") { return "PC は見つかったが CastMic が待ち受けていない (拒否)" }
+        if m.contains("タイムアウト") || m.contains("timed out") || m.contains("error 60") { return "応答なし (ファイアウォール / 別ネットワーク)" }
+        if m.contains("No route") || m.contains("error 65") || m.contains("unreachable") { return "経路がない (別ネットワーク)" }
+        if m.contains("certificate") || m.contains("-9807") || m.contains("bad certificate") { return "証明書エラー" }
+        return m
+    }
 
     nonisolated static func rtt(_ d: Data) -> Int? {
         guard d.count == 8 else { return nil }
