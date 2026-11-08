@@ -41,6 +41,8 @@ final class CastSession {
     var autoReconnect = CastSession.pref("autoReconnect", true) { didSet { save("autoReconnect", autoReconnect) } }
     /// 音声圧縮 (Opus)。次回接続時から有効
     var useOpus = CastSession.pref("useOpus", true) { didSet { save("useOpus", useOpus) } }
+    /// 逆方向 (macOS のみ): Windows のマイク/スピーカーを Mac で使う。次回接続時から有効
+    var reverseMode = CastSession.pref("reverseMode", false) { didSet { save("reverseMode", reverseMode) } }
     /// 遅延の上限 (ms)。小さいほど低遅延、大きいほど途切れにくい
     var bufferMs = CastSession.pref("bufferMs", 80) {
         didSet { save("bufferMs", bufferMs); audio?.bufferMs = bufferMs }
@@ -173,12 +175,17 @@ final class CastSession {
         guard candidateIndex < candidates.count else { return }
         let target = candidates[candidateIndex]
         let c = Connection(endpoint: target.endpoint, pinnedFingerprint: pins[target.label])
-        let a = AudioIO(voiceProcessing: voiceProcessing)
+        #if os(macOS)
+        let reverse = reverseMode
+        #else
+        let reverse = false
+        #endif
+        let a = AudioIO(voiceProcessing: voiceProcessing, reverse: reverse)
         a.micEnabled = micEnabled
         a.speakerEnabled = speakerEnabled
         a.micGain = micGain
         a.bufferMs = bufferMs
-        let enc = useOpus ? OpusEncoder(channels: 1, bitrate: 48_000) : nil
+        let enc = useOpus ? OpusEncoder(channels: UInt32(a.upChannels), bitrate: reverse ? 96_000 : 48_000) : nil
         let dec = useOpus ? OpusDecoder(channels: 2) : nil
         encoder = enc
         decoder = dec
@@ -251,6 +258,8 @@ final class CastSession {
                 "name": Self.deviceName, "version": 2, "code": pairingCode,
                 "codec": wantOpus ? "opus" : "pcm",
                 "mic": micEnabled, "speaker": speakerEnabled, "bufferMs": bufferMs,
+                "mode": audio?.reverse == true ? "reverse" : "normal",
+                "upChannels": Int(audio?.upChannels ?? 1),
             ]
             connection?.send(.hello, (try? JSONSerialization.data(withJSONObject: hello)) ?? Data())
             do {

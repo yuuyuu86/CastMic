@@ -13,6 +13,7 @@ iPhone / Mac を Windows の **マイク** と **スピーカー** として使�
 |---|---|
 | `apple/` | iOS / macOS 共通 SwiftUI アプリ (送信側) |
 | `windows/` | Windows 受信アプリ (C# / .NET 8, WinForms) |
+| `mac-driver/` | macOS 仮想オーディオデバイス (AudioServerPlugIn, 逆方向モード用) |
 | `driver/` | Windows 仮想オーディオドライバ (WDK / PortCls WaveRT) |
 | `docs/` | プロトコル仕様 |
 
@@ -22,6 +23,13 @@ iPhone / Mac を Windows の **マイク** と **スピーカー** として使�
 - 自作ドライバ: CI でビルド・パッケージ化まで通る。実機未検証 (`driver/README.md`)。動くまでは Windows アプリの **VB-CABLE フォールバック** で動作確認できる。
 
 ## 機能
+
+- **2 方向**: iPhone / Mac を Windows のマイク・スピーカーに / Windows のマイク・スピーカーを Mac で使う (逆方向, Mac 用ドライバが必要)
+- **QR コードでペアリング**: Windows に出る QR を iPhone で読むだけで接続 (証明書も QR で受け取るのでなりすまし不可)
+- **ミュート**: iPhone のロック画面 / Dynamic Island、Windows の Ctrl+Shift+M、トレイから。全端末で連動
+- **音声圧縮 (Opus)**: 通信量 1/10。遅延 (40〜300ms) をスライダーで調整
+- **複数台同時接続** (最大 4 台): 例) iPhone をマイク、Mac をスピーカーに
+- **Windows インストーラー**: アプリ・ドライバ・ファイアウォール設定を一括 (CI の Artifacts `CastMic-Setup`)
 
 - 同じネットワーク上の PC を自動検出 (mDNS)。IP 直接入力も可
 - 切断時の自動再接続

@@ -27,6 +27,8 @@ public sealed class CastServer : IDisposable
     readonly CancellationTokenSource _cts = new();
     readonly IAudioBridge _bridge;
     readonly X509Certificate2 _cert;
+    readonly Func<IAudioBridge> _reverseFactory;
+    IAudioBridge? _reverse;
     readonly object _lock = new();
     readonly List<Client> _clients = new();
     Client? _micOwner;
@@ -49,21 +51,49 @@ public sealed class CastServer : IDisposable
         public readonly CancellationTokenSource Cts = new();
         public string Name = "?";
         public bool Opus;
+        /// 逆方向 (Mac が Windows のマイク / スピーカーを使う)
+        public bool Reverse;
+        public int UpChannels = 1;
         public volatile bool WantsMic = true, WantsSpeaker = true;
         public IOpusDecoder? MicDecoder;
         public IOpusEncoder? SpeakerEncoder;
         public readonly short[] SpkAcc = new short[Frame.OpusFrame * 2];
         public int SpkAccCount;
         public readonly object SpkLock = new();
-        public string Label => $"{Name} ({(WantsMic ? "マイク" : "")}{(WantsMic && WantsSpeaker ? "+" : "")}{(WantsSpeaker ? "スピーカー" : "")})";
+        public string Label => Reverse
+            ? $"{Name} (逆方向: Windows のマイク/スピーカーを使用)"
+            : $"{Name} ({(WantsMic ? "マイク" : "")}{(WantsMic && WantsSpeaker ? "+" : "")}{(WantsSpeaker ? "スピーカー" : "")})";
     }
 
-    public CastServer(IAudioBridge bridge, string pairingCode, X509Certificate2 cert)
+    public CastServer(IAudioBridge bridge, string pairingCode, X509Certificate2 cert, Func<IAudioBridge>? reverseFactory = null)
     {
         _bridge = bridge;
         _cert = cert;
         PairingCode = pairingCode;
-        _bridge.SpeakerData += OnSpeaker;
+        _reverseFactory = reverseFactory ?? (() => new ReverseBridge());
+        _bridge.SpeakerData += pcm => OnSpeaker(pcm, reverse: false);
+    }
+
+    /// 最初の逆方向クライアントが来たときに Windows の実デバイスを開く
+    IAudioBridge? ReverseBridgeOrNull()
+    {
+        lock (_lock)
+        {
+            if (_reverse != null) return _reverse;
+            try
+            {
+                var r = _reverseFactory();
+                r.SpeakerData += pcm => OnSpeaker(pcm, reverse: true);
+                r.Start();
+                _reverse = r;
+                Log?.Invoke($"逆方向オーディオ: {r.Name}");
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidOperationException)
+            {
+                Log?.Invoke($"Windows のマイク / スピーカーを開けませんでした: {ex.Message}");
+            }
+            return _reverse;
+        }
     }
 
     public bool Muted
@@ -150,21 +180,24 @@ public sealed class CastServer : IDisposable
                     client.Opus = hello.Codec == "opus";
                     client.WantsMic = hello.Mic;
                     client.WantsSpeaker = hello.Speaker;
+                    client.Reverse = hello.Reverse;
+                    client.UpChannels = hello.Reverse ? 2 : 1;
                     if (client.Opus)
                     {
-                        client.MicDecoder = OpusCodecFactory.CreateDecoder(Frame.SampleRate, 1);
+                        client.MicDecoder = OpusCodecFactory.CreateDecoder(Frame.SampleRate, client.UpChannels);
                         client.SpeakerEncoder = OpusCodecFactory.CreateEncoder(Frame.SampleRate, 2, OpusApplication.OPUS_APPLICATION_AUDIO);
                         client.SpeakerEncoder.Bitrate = 96_000;
                     }
                     _clients.Add(client);
-                    if (client.WantsMic)
+                    if (client.WantsMic && !client.Reverse)
                     {
                         _micOwner = client;
                         _bridge.MicBufferMs = hello.BufferMs;
                     }
                 }
 
-                Log?.Invoke($"接続: {client.Name} ({client.Endpoint}, {(client.Opus ? "Opus" : "PCM")})");
+                Log?.Invoke($"接続: {client.Name} ({client.Endpoint}, {(client.Opus ? "Opus" : "PCM")}{(client.Reverse ? ", 逆方向" : "")})");
+                if (client.Reverse && ReverseBridgeOrNull() is { } rb) rb.MicBufferMs = hello.BufferMs;
                 ClientHello?.Invoke(client.Name);
                 RaiseClientsChanged();
                 var reply = JsonSerializer.SerializeToUtf8Bytes(new
@@ -187,18 +220,20 @@ public sealed class CastServer : IDisposable
                 switch (type)
                 {
                     case FrameType.MicAudio when !client.Opus:
-                        if (IsMicSource(client)) _bridge.WriteMic(payload);
+                        if (client.Reverse) { if (client.WantsMic) _reverse?.WriteMic(payload); }
+                        else if (IsMicSource(client)) _bridge.WriteMic(payload);
                         break;
                     case FrameType.MicOpus when client.MicDecoder != null:
-                        if (!IsMicSource(client)) break;
+                        var sink = client.Reverse ? (client.WantsMic ? _reverse : null) : (IsMicSource(client) ? _bridge : null);
+                        if (sink == null) break;
                         int n;
-                        try { n = client.MicDecoder.Decode(payload, pcm, pcm.Length, false); }
+                        try { n = client.MicDecoder.Decode(payload, pcm, pcm.Length / client.UpChannels, false) * client.UpChannels; }
                         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or IndexOutOfRangeException) { break; }
                         if (n > 0)
                         {
                             var bytes = new byte[n * 2];
                             Buffer.BlockCopy(pcm, 0, bytes, 0, bytes.Length);
-                            _bridge.WriteMic(bytes);
+                            sink.WriteMic(bytes);
                         }
                         break;
                     case FrameType.Ping:
@@ -214,8 +249,8 @@ public sealed class CastServer : IDisposable
                             {
                                 client.WantsMic = mic;
                                 client.WantsSpeaker = spk;
-                                if (mic) _micOwner = client;
-                                else if (_micOwner == client) _micOwner = _clients.LastOrDefault(c => c.WantsMic);
+                                if (mic && !client.Reverse) _micOwner = client;
+                                else if (_micOwner == client) _micOwner = _clients.LastOrDefault(c => c.WantsMic && !c.Reverse);
                             }
                             RaiseClientsChanged();
                         }
@@ -238,7 +273,9 @@ public sealed class CastServer : IDisposable
             lock (_lock)
             {
                 removed = _clients.Remove(client);
-                if (_micOwner == client) _micOwner = _clients.LastOrDefault(c => c.WantsMic);
+                if (_micOwner == client) _micOwner = _clients.LastOrDefault(c => c.WantsMic && !c.Reverse);
+                // 逆方向クライアントがいなくなったら実デバイスを閉じる
+                if (_reverse != null && !_clients.Any(c => c.Reverse)) { _reverse.Dispose(); _reverse = null; }
             }
             if (removed) RaiseClientsChanged();
             stream.Dispose();
@@ -248,11 +285,12 @@ public sealed class CastServer : IDisposable
 
     bool IsMicSource(Client c) => !_muted && c.WantsMic && _micOwner == c;
 
-    /// Windows の出力音声 (48k stereo s16le) を speaker 役の全端末へ
-    void OnSpeaker(byte[] pcm)
+    /// Windows の音 (48k stereo s16le) を speaker 役の端末へ。
+    /// 通常: 仮想スピーカーの音 / 逆方向: Windows の実マイクの音
+    void OnSpeaker(byte[] pcm, bool reverse)
     {
         Client[] targets;
-        lock (_lock) targets = _clients.Where(c => c.WantsSpeaker).ToArray();
+        lock (_lock) targets = _clients.Where(c => c.WantsSpeaker && c.Reverse == reverse).ToArray();
         foreach (var c in targets)
         {
             if (c.SpeakerEncoder == null)
@@ -316,9 +354,10 @@ public sealed class CastServer : IDisposable
     {
         _cts.Cancel();
         _listener.Stop();
+        lock (_lock) { _reverse?.Dispose(); _reverse = null; }
     }
 
-    sealed record Hello(string Name, string? Code, string Codec, bool Mic, bool Speaker, int BufferMs)
+    sealed record Hello(string Name, string? Code, string Codec, bool Mic, bool Speaker, int BufferMs, bool Reverse)
     {
         public static Hello? Parse(byte[] payload)
         {
@@ -332,7 +371,7 @@ public sealed class CastServer : IDisposable
                 // ログや通知に出すので制御文字を除去して短くする
                 var name = new string((Str("name") ?? "?").Where(ch => !char.IsControl(ch)).Take(64).ToArray());
                 var codec = Str("codec") == "opus" ? "opus" : "pcm";
-                return new Hello(name, Str("code"), codec, Bool("mic", true), Bool("speaker", true), buf);
+                return new Hello(name, Str("code"), codec, Bool("mic", true), Bool("speaker", true), buf, Str("mode") == "reverse");
             }
             catch (JsonException) { return null; }
         }

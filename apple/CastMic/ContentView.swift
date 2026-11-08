@@ -9,6 +9,25 @@ struct ContentView: View {
         @Bindable var session = session
         NavigationStack {
             Form {
+                #if os(macOS)
+                Section {
+                    Picker("使い方", selection: $session.reverseMode) {
+                        Text("Mac を Windows のマイク / スピーカーに").tag(false)
+                        Text("Windows を Mac のマイク / スピーカーに").tag(true)
+                    }
+                    .pickerStyle(.radioGroup)
+                    .disabled(session.isActive)
+                    if session.reverseMode && !AudioIO.isDriverInstalled {
+                        Label("Mac 用 CastMic ドライバが必要です。mac-driver/install.sh でインストールしてください。", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                    }
+                } footer: {
+                    if session.reverseMode {
+                        Text("Mac のアプリでは入力に「CastMic Microphone」、出力に「CastMic Speaker」を選んでください。Windows の実際のマイク / スピーカーにつながります。")
+                    }
+                }
+                #endif
+
                 if session.isActive {
                     connectedSection
                 } else {
@@ -38,8 +57,8 @@ struct ContentView: View {
                     }
                 }
 
-                Section("マイク") {
-                    Toggle("マイクとして使う", isOn: $session.micEnabled)
+                Section(micTitle) {
+                    Toggle(micToggle, isOn: $session.micEnabled)
                     ProgressView(value: Double(session.muted ? 0 : session.micLevel))
                         .tint(session.micLevel > 0.9 ? .red : .green)
                     HStack {
@@ -53,8 +72,8 @@ struct ContentView: View {
                         .disabled(session.isActive)
                 }
 
-                Section("スピーカー") {
-                    Toggle("PC の音を再生", isOn: $session.speakerEnabled)
+                Section(speakerTitle) {
+                    Toggle(speakerToggle, isOn: $session.speakerEnabled)
                 }
 
                 Section {
@@ -185,6 +204,18 @@ struct ContentView: View {
             Text("有線で使う場合: インターネット共有をオンにして USB で接続し、Windows 側に表示される 172.20.10.x のアドレスを入力してください。")
         }
     }
+
+    private var rev: Bool {
+        #if os(macOS)
+        session.reverseMode
+        #else
+        false
+        #endif
+    }
+    private var micTitle: String { rev ? "Mac の音 → Windows のスピーカー" : "マイク" }
+    private var micToggle: String { rev ? "Windows のスピーカーで鳴らす" : "マイクとして使う" }
+    private var speakerTitle: String { rev ? "Windows のマイク → Mac" : "スピーカー" }
+    private var speakerToggle: String { rev ? "Windows のマイクを Mac で使う" : "PC の音を再生" }
 
     private var statusText: String {
         switch session.status {

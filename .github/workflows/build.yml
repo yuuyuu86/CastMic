@@ -25,6 +25,19 @@ jobs:
       - name: Build iOS
         working-directory: apple
         run: xcodebuild -project CastMic.xcodeproj -scheme CastMic -destination 'generic/platform=iOS' build CODE_SIGNING_ALLOWED=NO
+      - name: Build and test Mac audio driver
+        working-directory: mac-driver
+        run: |
+          ./build.sh
+          clang -O1 -o test/hal_test test/hal_test.c -framework CoreAudio -framework CoreFoundation -Wno-nonnull
+          ./test/hal_test build/CastMicHAL.driver
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CastMicHAL-mac-driver
+          path: |
+            mac-driver/build/CastMicHAL.driver
+            mac-driver/install.sh
+            mac-driver/uninstall.sh
 
   windows:
     runs-on: windows-2022

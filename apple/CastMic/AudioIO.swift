@@ -6,7 +6,12 @@ final class AudioIO: @unchecked Sendable {
 
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
-    private let micFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Frame.sampleRate, channels: 1, interleaved: true)!
+    /// 送信する音声のチャンネル数 (通常 = マイク 1ch / 逆方向 = Mac の出力音 2ch)
+    let upChannels: AVAudioChannelCount
+    private let micFormat: AVAudioFormat
+    /// 逆方向モード (macOS のみ): 「CastMic Speaker」から録音し、「CastMic Microphone」へ再生する
+    let reverse: Bool
+    private var captureEngine: AVAudioEngine?
     private let wireSpeakerFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Frame.sampleRate, channels: 2, interleaved: true)!
     private let playFormat = AVAudioFormat(standardFormatWithSampleRate: Frame.sampleRate, channels: 2)!
     private var converter: AVAudioConverter?
@@ -29,8 +34,20 @@ final class AudioIO: @unchecked Sendable {
     private var running = false
     private var observers: [NSObjectProtocol] = []
 
-    init(voiceProcessing: Bool) {
-        self.voiceProcessing = voiceProcessing
+    init(voiceProcessing: Bool, reverse: Bool = false) {
+        self.reverse = reverse
+        self.voiceProcessing = reverse ? false : voiceProcessing
+        upChannels = reverse ? 2 : 1
+        micFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Frame.sampleRate, channels: upChannels, interleaved: true)!
+    }
+
+    enum AudioIOError: LocalizedError {
+        case deviceNotFound(String)
+        var errorDescription: String? {
+            switch self {
+            case .deviceNotFound(let n): "「\(n)」が見つかりません。Mac 用 CastMic ドライバをインストールしてください。"
+            }
+        }
     }
 
     deinit {
@@ -46,8 +63,20 @@ final class AudioIO: @unchecked Sendable {
         try s.setActive(true)
         #endif
 
-        let input = engine.inputNode
-        try? input.setVoiceProcessingEnabled(voiceProcessing)
+        var captureFrom = engine
+        #if os(macOS)
+        if reverse {
+            guard let spk = Self.deviceID(uid: "CastMic.Speaker") else { throw AudioIOError.deviceNotFound("CastMic Speaker") }
+            guard let mic = Self.deviceID(uid: "CastMic.Microphone") else { throw AudioIOError.deviceNotFound("CastMic Microphone") }
+            let cap = AVAudioEngine()
+            try cap.inputNode.auAudioUnit.setDeviceID(spk)
+            try engine.outputNode.auAudioUnit.setDeviceID(mic)
+            captureEngine = cap
+            captureFrom = cap
+        }
+        #endif
+        let input = captureFrom.inputNode
+        if !reverse { try? input.setVoiceProcessingEnabled(voiceProcessing) }
         let inFormat = input.outputFormat(forBus: 0)
         converter = AVAudioConverter(from: inFormat, to: micFormat)
         input.installTap(onBus: 0, bufferSize: 480, format: inFormat) { [weak self] buf, _ in
@@ -58,6 +87,10 @@ final class AudioIO: @unchecked Sendable {
         engine.connect(player, to: engine.mainMixerNode, format: playFormat)
         engine.prepare()
         try engine.start()
+        if let cap = captureEngine {
+            cap.prepare()
+            try cap.start()
+        }
         player.play()
         lock.withLock { running = true }
         observeRestarts()
@@ -101,7 +134,13 @@ final class AudioIO: @unchecked Sendable {
     }
 
     private func stopEngine() {
-        engine.inputNode.removeTap(onBus: 0)
+        if let cap = captureEngine {
+            cap.inputNode.removeTap(onBus: 0)
+            cap.stop()
+            captureEngine = nil
+        } else {
+            engine.inputNode.removeTap(onBus: 0)
+        }
         player.stop()
         engine.stop()
         if engine.attachedNodes.contains(player) { engine.detach(player) }
@@ -120,12 +159,13 @@ final class AudioIO: @unchecked Sendable {
             consumed = true; status.pointee = .haveData; return buf
         }
         guard err == nil, out.frameLength > 0, let p = out.int16ChannelData else { return }
+        let samples = Int(out.frameLength) * Int(upChannels)
         if micGain != 1 {
-            for i in 0..<Int(out.frameLength) {
+            for i in 0..<samples {
                 p[0][i] = Int16(max(-32768, min(32767, Float(p[0][i]) * micGain)))
             }
         }
-        onMic?(Data(bytes: p[0], count: Int(out.frameLength) * 2))
+        onMic?(Data(bytes: p[0], count: samples * 2))
     }
 
     /// Windows から届いたスピーカー音声を再生キューへ
@@ -158,5 +198,28 @@ final class AudioIO: @unchecked Sendable {
 extension AVAudioSession.CategoryOptions {
     /// 新 SDK では allowBluetoothHFP、旧 SDK では allowBluetooth (同じ値)。どちらの Xcode でもビルドできるよう生の値で指定
     static let bluetoothHFP = AVAudioSession.CategoryOptions(rawValue: 0x4)
+}
+#endif
+
+#if os(macOS)
+import CoreAudio
+
+extension AudioIO {
+    /// デバイス UID → AudioDeviceID
+    static func deviceID(uid: String) -> AudioDeviceID? {
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyTranslateUIDToDevice,
+            mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var cfUID = uid as CFString
+        var id = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = withUnsafePointer(to: &cfUID) { q in
+            AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr,
+                                       UInt32(MemoryLayout<CFString>.size), q, &size, &id)
+        }
+        return status == noErr && id != kAudioObjectUnknown ? id : nil
+    }
+
+    static var isDriverInstalled: Bool { deviceID(uid: "CastMic.Speaker") != nil }
 }
 #endif
