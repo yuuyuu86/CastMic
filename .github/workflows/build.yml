@@ -26,32 +26,46 @@ jobs:
         working-directory: apple
         run: xcodebuild -project CastMic.xcodeproj -scheme CastMic -destination 'generic/platform=iOS' build CODE_SIGNING_ALLOWED=NO
 
-  windows-app:
+  windows:
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
-      - name: Publish
+      - uses: microsoft/setup-msbuild@v2
+        with:
+          msbuild-architecture: x64 # x86 版だと InfVerif.dll が読めない
+
+      - name: Publish app
         run: dotnet publish windows/CastMic.Windows -c Release -r win-x64 --self-contained false -o out/app
+
+      - name: Build driver (x64, test-signed)
+        run: msbuild driver/CastMicAudio/CastMicAudio.vcxproj /p:Configuration=Release /p:Platform=x64 /m
+
+      - name: Collect driver package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out/driver | Out-Null
+          Copy-Item driver/CastMicAudio/x64/Release/CastMicAudio/* out/driver/
+          Copy-Item driver/CastMicAudio/x64/Release/*.cer out/driver/CastMicAudio.cer
+          Get-ChildItem out/driver
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" windows/installer/CastMic.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CastMic-Setup
+          path: out/CastMic-Setup-*.exe
       - uses: actions/upload-artifact@v4
         with:
           name: CastMic-Windows
           path: out/app
-
-  driver:
-    runs-on: windows-2022
-    steps:
-      - uses: actions/checkout@v4
-      - uses: microsoft/setup-msbuild@v2
-        with:
-          msbuild-architecture: x64 # x86 版だと InfVerif.dll が読めない
-      - name: Build driver (x64, test-signed)
-        run: msbuild driver/CastMicAudio/CastMicAudio.vcxproj /p:Configuration=Release /p:Platform=x64 /m
       - uses: actions/upload-artifact@v4
         with:
           name: CastMicAudio-driver-x64
-          path: |
-            driver/CastMicAudio/x64/Release/CastMicAudio/
-            driver/CastMicAudio/x64/Release/*.cer
+          path: out/driver
