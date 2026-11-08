@@ -34,6 +34,9 @@
       <TreatWarningAsError>true</TreatWarningAsError>
       <PreprocessorDefinitions>POOL_ZERO_DOWN_LEVEL_SUPPORT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
+    <DriverSign>
+      <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
+    </DriverSign>
     <Link>
       <AdditionalDependencies>portcls.lib;stdunk.lib;ksguid.lib;libcntpr.lib;wdmsec.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
