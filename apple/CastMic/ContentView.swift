@@ -53,15 +53,23 @@ struct ContentView: View {
                         Text("有線で使う場合: インターネット共有をオンにして USB で接続し、Windows 側に表示される 172.20.10.x のアドレスを入力してください。")
                     }
                 } else {
-                    Section("接続中") {
+                    Section {
                         LabeledContent("状態", value: statusText)
                         if let name = session.connectedName {
                             LabeledContent("PC", value: name)
+                        }
+                        if let fp = session.fingerprint {
+                            LabeledContent("確認コード", value: fp)
+                                .monospaced()
                         }
                         if let ms = session.latencyMs {
                             LabeledContent("往復遅延", value: "\(ms) ms")
                         }
                         Button("切断", role: .destructive) { session.disconnect() }
+                    } header: {
+                        Text("接続中")
+                    } footer: {
+                        Text("通信は暗号化されています。初めて接続した PC では、確認コードが Windows の画面の表示と一致するか確認してください。")
                     }
                 }
 
@@ -69,6 +77,9 @@ struct ContentView: View {
                     Section {
                         Label(m, systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.red)
+                        if session.mismatchLabel != nil {
+                            Button("信頼をリセット", role: .destructive) { session.resetTrust() }
+                        }
                     }
                 }
 

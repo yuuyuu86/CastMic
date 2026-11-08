@@ -32,6 +32,24 @@ final class CastSession {
     }
     var micLevel: Float = 0
     var latencyMs: Int?
+    /// 接続中のサーバー証明書の確認コード (Windows に表示されるものと同じ)
+    var fingerprint: String?
+    /// 証明書が以前と違う接続先
+    var mismatchLabel: String?
+
+    /// 接続先ラベル (PC 名 or IP) → 証明書指紋
+    private var pins: [String: String] {
+        get { UserDefaults.standard.dictionary(forKey: "pins") as? [String: String] ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: "pins") }
+    }
+
+    /// 証明書が変わった PC を信頼し直す (PC を入れ替えた・再インストールした場合)
+    func resetTrust() {
+        guard let label = mismatchLabel else { return }
+        pins[label] = nil
+        mismatchLabel = nil
+        status = .idle
+    }
 
     private var target: (endpoint: NWEndpoint, label: String)?
     private var connection: Connection?
@@ -76,7 +94,7 @@ final class CastSession {
 
     private func open() {
         guard let target else { return }
-        let c = Connection(endpoint: target.endpoint)
+        let c = Connection(endpoint: target.endpoint, pinnedFingerprint: pins[target.label])
         let a = AudioIO(voiceProcessing: voiceProcessing)
         a.micEnabled = micEnabled
         a.speakerEnabled = speakerEnabled
@@ -95,8 +113,9 @@ final class CastSession {
             case .authFailed:
                 Task { @MainActor in self?.authFailed() }
             case .hello:
+                // Windows からの Hello = ペアリングコードが通った。ここで初めて証明書を記憶する
                 let name = (try? JSONSerialization.jsonObject(with: payload) as? [String: Any])?["name"] as? String
-                Task { @MainActor in self?.connectedName = name }
+                Task { @MainActor in self?.authSucceeded(name: name) }
             default: break
             }
         }
@@ -123,6 +142,7 @@ final class CastSession {
         micLevel = 0
         latencyMs = nil
         connectedName = nil
+        fingerprint = nil
     }
 
     private func handle(_ st: Connection.State) {
@@ -142,9 +162,23 @@ final class CastSession {
             }
         case .failed(let m):
             lost(m)
+        case .certMismatch:
+            // なりすましの可能性: 再接続せず止める
+            mismatchLabel = target?.label
+            target = nil
+            retryTask?.cancel(); retryTask = nil
+            teardown()
+            status = .error("PC の証明書が以前と違います。なりすましの可能性があります。PC を再インストールした等で心当たりがある場合のみ「信頼をリセット」してください。")
         case .closed:
             if status == .connected { lost("切断されました") }
         }
+    }
+
+    private func authSucceeded(name: String?) {
+        connectedName = name
+        guard let target, let fp = connection?.peerFingerprint else { return }
+        fingerprint = Connection.shortFingerprint(fp)
+        if pins[target.label] == nil { pins[target.label] = fp }
     }
 
     /// コード違いは再試行しても無駄なので自動再接続しない

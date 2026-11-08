@@ -13,6 +13,7 @@ public sealed class MainForm : Form
     readonly Label _ips = new() { Dock = DockStyle.Top, Height = 90, Padding = new Padding(8, 4, 8, 0) };
     readonly Panel _pairRow = new() { Dock = DockStyle.Top, Height = 40, Padding = new Padding(8, 4, 8, 4) };
     readonly Label _code = new() { Dock = DockStyle.Fill, Font = new Font(FontFamily.GenericMonospace, 14, FontStyle.Bold), TextAlign = ContentAlignment.MiddleLeft };
+    readonly Label _fp = new() { Dock = DockStyle.Top, Height = 24, Padding = new Padding(8, 2, 8, 0) };
     readonly Button _regen = new() { Dock = DockStyle.Right, Width = 110, Text = "コードを再生成" };
     readonly CheckBox _autostart = new() { Dock = DockStyle.Top, Height = 28, Padding = new Padding(8, 0, 8, 0), Text = "Windows 起動時にバックグラウンドで開始" };
     readonly TextBox _log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical };
@@ -29,6 +30,7 @@ public sealed class MainForm : Form
         Width = 460; Height = 420;
         Controls.Add(_log);
         Controls.Add(_autostart);
+        Controls.Add(_fp);
         Controls.Add(_pairRow);
         _pairRow.Controls.Add(_code);
         _pairRow.Controls.Add(_regen);
@@ -97,7 +99,17 @@ public sealed class MainForm : Form
         AppendLog($"オーディオ: {_bridge.Name}");
         if (_bridge is DriverBridge db) db.Error += AppendLog;
         _bridge.Start();
-        _server = new CastServer(_bridge, code);
+        System.Security.Cryptography.X509Certificates.X509Certificate2 cert;
+        try { cert = ServerIdentity.LoadOrCreate(); }
+        catch (System.Security.Cryptography.CryptographicException ex)
+        {
+            _status.Text = "証明書の作成に失敗しました";
+            AppendLog(ex.Message);
+            ShowWindow();
+            return;
+        }
+        _fp.Text = $"確認コード (初回接続時に iPhone/Mac の表示と一致するか確認): {ServerIdentity.ShortFingerprint(ServerIdentity.Fingerprint(cert))}";
+        _server = new CastServer(_bridge, code, cert);
         _server.Log += AppendLog;
         _server.ClientHello += json => Notify($"{ParseName(json)} が接続しました");
         _server.ClientChanged += c => Ui(() =>

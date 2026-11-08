@@ -1,12 +1,15 @@
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using System.Threading.Channels;
 
 namespace CastMic;
 
 /// TCP 48100 で送信側 (iPhone/Mac) を受け付ける。
-/// ペアリングコード付きの Hello を受け取るまで音声は一切やり取りしない。
+/// 通信は TLS (自己署名証明書) で暗号化し、ペアリングコード付きの Hello を受け取るまで音声は一切やり取りしない。
 public sealed class CastServer : IDisposable
 {
     public const int Port = 48100;
@@ -36,9 +39,12 @@ public sealed class CastServer : IDisposable
         public readonly CancellationTokenSource Cts = new();
     }
 
-    public CastServer(IAudioBridge bridge, string pairingCode)
+    readonly X509Certificate2 _cert;
+
+    public CastServer(IAudioBridge bridge, string pairingCode, X509Certificate2 cert)
     {
         _bridge = bridge;
+        _cert = cert;
         PairingCode = pairingCode;
         _bridge.SpeakerData += pcm => Enqueue(_active, FrameType.SpeakerAudio, pcm);
     }
@@ -73,7 +79,7 @@ public sealed class CastServer : IDisposable
     {
         tcp.NoDelay = true;
         var client = new Client(tcp, tcp.Client.RemoteEndPoint?.ToString() ?? "?");
-        var stream = tcp.GetStream();
+        var stream = new SslStream(tcp.GetStream(), false);
         bool authed = false;
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, client.Cts.Token);
         var ct = linked.Token;
@@ -83,6 +89,13 @@ public sealed class CastServer : IDisposable
             using (var helloCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
             {
                 helloCts.CancelAfter(HelloTimeout);
+                await stream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+                {
+                    ServerCertificate = _cert,
+                    EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+                    ClientCertificateRequired = false,
+                    CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
+                }, helloCts.Token);
                 var (type, payload) = await Frame.ReadAsync(stream, helloCts.Token, Frame.MaxHelloPayload);
                 var (name, code) = type == FrameType.Hello ? ParseHello(payload) : ("?", null);
                 if (!Pairing.Matches(PairingCode, code))
@@ -122,7 +135,7 @@ public sealed class CastServer : IDisposable
             await writer;
         }
         catch (Exception ex) when (ex is IOException or EndOfStreamException or OperationCanceledException
-                                       or InvalidDataException or ObjectDisposedException or SocketException)
+                                       or InvalidDataException or ObjectDisposedException or SocketException or AuthenticationException)
         {
             if (authed) Log?.Invoke($"切断: {client.Endpoint}");
         }
@@ -133,11 +146,12 @@ public sealed class CastServer : IDisposable
             bool wasActive;
             lock (_lock) { wasActive = _active == client; if (wasActive) _active = null; }
             if (wasActive) ClientChanged?.Invoke(null);
+            stream.Dispose();
             tcp.Dispose();
         }
     }
 
-    static async Task WriteLoop(Client client, NetworkStream stream, CancellationToken ct)
+    static async Task WriteLoop(Client client, Stream stream, CancellationToken ct)
     {
         try
         {
