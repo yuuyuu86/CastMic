@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 struct ContentView: View {
@@ -35,7 +36,15 @@ struct ContentView: View {
                     if QRScannerView.isAvailable {
                         Section {
                             Button {
-                                scanning = true
+                                Task {
+                                    if AVCaptureDevice.authorizationStatus(for: .video) != .authorized {
+                                        guard await AVCaptureDevice.requestAccess(for: .video) else {
+                                            session.status = .error("カメラの使用が許可されていません。設定で CastMic のカメラを許可してください。")
+                                            return
+                                        }
+                                    }
+                                    scanning = true
+                                }
                             } label: {
                                 Label("QR コードで接続", systemImage: "qrcode.viewfinder")
                             }
@@ -121,6 +130,13 @@ struct ContentView: View {
             .navigationTitle("CastMic")
         }
         .frame(minWidth: 340, minHeight: 560)
+        .alert(pairTitle, isPresented: Binding(get: { session.pendingPair != nil }, set: { if !$0 { session.cancelPair() } }),
+               presenting: session.pendingPair) { _ in
+            Button("接続") { session.confirmPair() }
+            Button("キャンセル", role: .cancel) { session.cancelPair() }
+        } message: { p in
+            Text(pairMessage(p))
+        }
         .onAppear { discovery.start() }
         .onDisappear { discovery.stop() }
         #if os(iOS)
@@ -220,6 +236,21 @@ struct ContentView: View {
         } footer: {
             Text("有線で使う場合: インターネット共有をオンにして USB で接続し、Windows 側に表示される 172.20.10.x のアドレスを入力してください。")
         }
+    }
+
+    private var pairTitle: String {
+        session.pendingPair?.conflicts.isEmpty == false ? "⚠️ 証明書が以前と違います" : "この PC に接続しますか?"
+    }
+
+    private func pairMessage(_ p: CastSession.PendingPair) -> String {
+        var lines = ["PC: \(p.name ?? "(名前なし)")"]
+        if !p.addresses.isEmpty { lines.append("IP: \(p.addresses.joined(separator: ", "))") }
+        lines.append("確認コード: \(p.shortFingerprint)")
+        lines.append("Windows の CastMic に表示されている確認コードと同じか確認してください。")
+        if !p.conflicts.isEmpty {
+            lines.append("\n\(p.conflicts.joined(separator: ", ")) は以前別の証明書で接続しています。PC を再インストールしたなど心当たりがない場合は接続しないでください。")
+        }
+        return lines.joined(separator: "\n")
     }
 
     private var rev: Bool {

@@ -76,6 +76,8 @@ public sealed class VirtualCamera : IDisposable
             {
                 using var ms = new MemoryStream(jpeg);
                 using var img = Image.FromStream(ms, false, false);
+                // 小さいファイルで巨大な解像度を宣言する JPEG によるメモリ枯渇を防ぐ
+                if (img.Width <= 0 || img.Height <= 0 || (long)img.Width * img.Height > 4096L * 4096) return;
                 using (var g = Graphics.FromImage(_canvas))
                 {
                     g.InterpolationMode = InterpolationMode.Bilinear;
@@ -90,6 +92,7 @@ public sealed class VirtualCamera : IDisposable
             }
             catch (ArgumentException) { /* 壊れた JPEG は捨てる */ }
             catch (ExternalException) { }
+            catch (OutOfMemoryException) { /* GDI+ は不正な画像でもこれを投げる */ }
         }
     }
 
@@ -109,6 +112,11 @@ public sealed class VirtualCamera : IDisposable
             }
             catch (FileNotFoundException) { }
             catch (UnauthorizedAccessException) { }
+            // 同名でサイズの小さい共有メモリが作られていた場合など
+            catch (Exception ex) when (ex is IOException or ArgumentException)
+            {
+                _map?.Dispose(); _map = null; _view = null;
+            }
         }
         return false;
     }

@@ -15,6 +15,7 @@ public enum FrameType : byte
     MuteState = 8,     // u8: 1 = ミュート
     Roles = 9,         // JSON {"mic":bool,"speaker":bool,"camera":bool}
     VideoJpeg = 10,    // カメラ映像 1 フレーム (JPEG)
+    ReverseDenied = 11, // 逆方向が Windows 側で許可されていない (直後に切断)
 }
 
 public static class Frame
@@ -35,13 +36,13 @@ public static class Frame
         return buf;
     }
 
-    public static async Task<(FrameType type, byte[] payload)> ReadAsync(Stream s, CancellationToken ct, int maxPayload)
+    public static async Task<(FrameType type, byte[] payload)> ReadAsync(Stream s, CancellationToken ct, int maxPayload, bool allowVideo = true)
     {
         var header = new byte[HeaderSize];
         await s.ReadExactlyAsync(header, ct);
         if (header[0] != 0x43 || header[1] != 0x4D) throw new InvalidDataException("bad magic");
         var len = BinaryPrimitives.ReadUInt32LittleEndian(header.AsSpan(4));
-        if (len > (header[2] == (byte)FrameType.VideoJpeg ? Math.Max(maxPayload, MaxVideoPayload) : maxPayload)) throw new InvalidDataException("frame too large");
+        if (len > (allowVideo && header[2] == (byte)FrameType.VideoJpeg ? Math.Max(maxPayload, MaxVideoPayload) : maxPayload)) throw new InvalidDataException("frame too large");
         var payload = new byte[len];
         await s.ReadExactlyAsync(payload, ct);
         return ((FrameType)header[2], payload);

@@ -122,37 +122,66 @@ final class CastSession {
         open()
     }
 
+    /// QR / リンクから読み取った接続先。ユーザーが確認するまで何もしない
+    struct PendingPair: Identifiable {
+        let id = UUID()
+        let name: String?
+        let addresses: [String]
+        let fingerprint: String
+        let code: String
+        let candidates: [Candidate]
+        /// 既に別の証明書を記憶している接続先 (PC 名 / IP)。なりすましの可能性がある
+        let conflicts: [String]
+        var shortFingerprint: String { Connection.shortFingerprint(fingerprint) }
+    }
+    /// 確認待ちの接続先 (画面に確認ダイアログを出す)
+    var pendingPair: PendingPair?
+
     /// castmic://pair?n=PC名&a=IP1,IP2&p=48100&c=123456&f=指紋
-    /// QR から来た場合は証明書の指紋が分かっているので、最初から固定して接続する (なりすましできない)
+    /// Web ページや他のアプリからも開けるリンクなので、ここでは内容を検証して確認待ちにするだけ。
+    /// 接続・証明書の記憶は confirmPair() でユーザーが承認してから行う。
     @discardableResult
     func handlePairURL(_ url: URL) -> Bool {
         guard url.scheme == "castmic", url.host == "pair",
               let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else { return false }
         func q(_ k: String) -> String? { items.first { $0.name == k }?.value }
         guard let code = q("c"), code.count == 6, code.allSatisfy({ $0.isASCII && $0.isNumber }),
-              let fp = q("f")?.uppercased(), fp.count == 64, fp.allSatisfy(\.isHexDigit) else {
+              let fp = q("f")?.uppercased(), fp.count == 64, fp.allSatisfy({ $0.isASCII && $0.isHexDigit }) else {
             status = .error("QR コードを読み取れませんでした")
             return false
         }
         let port = NWEndpoint.Port(q("p") ?? "") ?? 48100
-        let name = q("n").map { String($0.prefix(64)) }
-        let addrs = (q("a") ?? "").split(separator: ",").map(String.init).filter { IPv4Address($0) != nil }.prefix(8)
+        // PC 名は表示とログに使うので、制御文字を除いて短くする
+        let name = q("n").map { String($0.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }.prefix(64).map(Character.init)) }
+            .flatMap { $0.isEmpty ? nil : $0 }
+        let addrs = Array((q("a") ?? "").split(separator: ",").map(String.init).filter { IPv4Address($0) != nil }.prefix(8))
 
         var list: [Candidate] = []
-        if let name, !name.isEmpty {
+        if let name {
             list.append(Candidate(endpoint: .service(name: name, type: "_castmic._tcp", domain: "local.", interface: nil), label: name))
         }
         list += addrs.map { Candidate(endpoint: .hostPort(host: NWEndpoint.Host($0), port: port), label: $0) }
         guard !list.isEmpty else { status = .error("QR コードに接続先がありません"); return false }
 
-        var p = pins
-        for c in list { p[c.label] = fp }
-        pins = p
-        pairingCode = code
-        mismatchLabel = nil
-        connect(list)
+        let current = pins
+        let conflicts = list.map(\.label).filter { current[$0] != nil && current[$0] != fp }
+        pendingPair = PendingPair(name: name, addresses: addrs, fingerprint: fp, code: code, candidates: list, conflicts: conflicts)
         return true
     }
+
+    /// ユーザーが確認ダイアログで「接続」を選んだ
+    func confirmPair() {
+        guard let p = pendingPair else { return }
+        pendingPair = nil
+        var stored = pins
+        for c in p.candidates { stored[c.label] = p.fingerprint }
+        pins = stored
+        pairingCode = p.code
+        mismatchLabel = nil
+        connect(p.candidates)
+    }
+
+    func cancelPair() { pendingPair = nil }
 
     func disconnect() {
         candidates = []
@@ -223,6 +252,8 @@ final class CastSession {
                 Task { @MainActor in self?.latencyMs = rtt }
             case .authFailed:
                 Task { @MainActor in self?.authFailed() }
+            case .reverseDenied:
+                Task { @MainActor in self?.fail("Windows 側で逆方向が許可されていません。Windows の CastMic で「Mac から Windows のマイク / スピーカーを使うことを許可」をオンにしてください。") }
             case .muteState:
                 let m = payload.first == 1
                 Task { @MainActor in self?.muted = m; self?.onChange?() }
@@ -320,10 +351,15 @@ final class CastSession {
 
     /// コード違いは再試行しても無駄なので自動再接続しない
     private func authFailed() {
+        fail("ペアリングコードが違います (または失敗が続いたため一時的に拒否されています)。Windows の CastMic に表示されているコードを入力してください。")
+    }
+
+    /// 再試行しても無駄なエラー: 自動再接続せずに止める
+    private func fail(_ message: String) {
         candidates = []
         retryTask?.cancel(); retryTask = nil
         teardown()
-        status = .error("ペアリングコードが違います。Windows の CastMic に表示されているコードを入力してください。")
+        status = .error(message)
         onChange?()
     }
 

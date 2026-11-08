@@ -55,7 +55,7 @@ Filename: "{sys}\certutil.exe"; Parameters: "-f -addstore Root ""{app}\driver\Ca
 Filename: "{sys}\certutil.exe"; Parameters: "-f -addstore TrustedPublisher ""{app}\driver\CastMicAudio.cer"""; Tasks: driver; Flags: runhidden
 Filename: "{app}\CastMic.exe"; Parameters: "--install-driver ""{app}\driver\CastMicAudio.inf"""; Tasks: driver; Flags: runhidden waituntilterminated; StatusMsg: "ドライバをインストールしています..."
 Filename: "{sys}\bcdedit.exe"; Parameters: "/set testsigning on"; Tasks: testsign; Flags: runhidden
-Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""CastMic"" dir=in action=allow protocol=TCP localport=48100 program=""{app}\CastMic.exe"" profile=private"; Tasks: firewall; Flags: runhidden
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""CastMic"" dir=in action=allow protocol=TCP localport=48100 program=""{app}\CastMic.exe"" profile=any"; Tasks: firewall; Flags: runhidden
 Filename: "{sys}\regsvr32.exe"; Parameters: "/s ""{app}\CastMicCam.dll"""; Flags: runhidden; StatusMsg: "仮想カメラを登録しています..."; Check: IsWin11
 Filename: "{app}\CastMic.exe"; Description: "CastMic を起動"; Flags: postinstall nowait skipifsilent
 

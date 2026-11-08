@@ -23,6 +23,7 @@ public sealed class MainForm : Form
     readonly Button _regen = new() { Dock = DockStyle.Right, Width = 110, Text = "コードを再生成" };
     readonly CheckBox _mute = new() { Dock = DockStyle.Top, Height = 28, Padding = new Padding(8, 0, 8, 0), Text = "マイクをミュート (Ctrl+Shift+M)" };
     readonly CheckBox _autostart = new() { Dock = DockStyle.Top, Height = 28, Padding = new Padding(8, 0, 8, 0), Text = "Windows 起動時にバックグラウンドで開始" };
+    readonly CheckBox _allowReverse = new() { Dock = DockStyle.Top, Height = 28, Padding = new Padding(8, 0, 8, 0), Text = "Mac から Windows のマイク / スピーカーを使うことを許可 (逆方向)" };
     readonly ListBox _clients = new() { Dock = DockStyle.Top, Height = 64 };
     readonly TextBox _log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical };
     readonly NotifyIcon _tray = new() { Icon = TrayIcons.Idle, Text = "CastMic", Visible = true };
@@ -46,6 +47,7 @@ public sealed class MainForm : Form
         _pairRow.Controls.Add(_regen);
         Controls.Add(_log);
         Controls.Add(_clients);
+        Controls.Add(_allowReverse);
         Controls.Add(_autostart);
         Controls.Add(_mute);
         Controls.Add(_pairRow);
@@ -62,6 +64,15 @@ public sealed class MainForm : Form
         _autostart.Checked = Registry.CurrentUser.OpenSubKey(RunKey)?.GetValue("CastMic") != null;
         _autostart.CheckedChanged += (_, _) => SetAutostart(_autostart.Checked);
         _mute.CheckedChanged += (_, _) => { if (_server != null) _server.Muted = _mute.Checked; };
+        _allowReverse.Checked = Settings.AllowReverse;
+        _allowReverse.CheckedChanged += (_, _) =>
+        {
+            Settings.AllowReverse = _allowReverse.Checked;
+            if (_server == null) return;
+            _server.AllowReverse = _allowReverse.Checked;
+            // 許可を外したら、逆方向で接続中の端末も切る
+            if (!_allowReverse.Checked) _server.DisconnectAll();
+        };
         _regen.Click += (_, _) =>
         {
             _codeValue = Pairing.Regenerate();
@@ -123,7 +134,9 @@ public sealed class MainForm : Form
         if (_bridge is DriverBridge db) db.Error += AppendLog;
         _bridge.Start();
 
-        _server = new CastServer(_bridge, _codeValue, _cert);
+        _server = new CastServer(_bridge, _codeValue, _cert) { AllowReverse = Settings.AllowReverse };
+        _server.ReverseStarted += name => Ui(() =>
+            _tray.ShowBalloonTip(5000, "CastMic", $"{name} が Windows のマイクを使っています", ToolTipIcon.Warning));
         _server.Log += AppendLog;
         _server.ClientHello += name => Notify($"{name} が接続しました");
         _server.ClientsChanged += list => Ui(() =>

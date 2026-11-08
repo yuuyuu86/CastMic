@@ -6,7 +6,9 @@ import VisionKit
 struct QRScannerView: UIViewControllerRepresentable {
     let onFound: (URL) -> Void
 
-    static var isAvailable: Bool { DataScannerViewController.isSupported && DataScannerViewController.isAvailable }
+    /// isAvailable はカメラ許可前だと false になるので、対応端末かどうか (isSupported) だけで判断する。
+    /// 許可はボタンを押したときに求める
+    static var isAvailable: Bool { DataScannerViewController.isSupported }
 
     func makeUIViewController(context: Context) -> DataScannerViewController {
         let vc = DataScannerViewController(

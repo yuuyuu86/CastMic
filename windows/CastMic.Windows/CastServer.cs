@@ -36,6 +36,16 @@ public sealed class CastServer : IDisposable
     volatile bool _muted;
 
     public string PairingCode { get; set; }
+    /// 逆方向 (端末が Windows の実マイクを聞ける) を許可するか。既定は不許可
+    public bool AllowReverse { get; set; }
+    /// 逆方向で Windows のマイクが使われ始めたとき (通知用)
+    public event Action<string>? ReverseStarted;
+
+    // 総当たり対策: 10 分間に 20 回コードを間違えたら 10 分間すべての接続を拒否
+    const int LockoutFailures = 20;
+    static readonly TimeSpan LockoutWindow = TimeSpan.FromMinutes(10);
+    readonly Queue<DateTime> _failures = new();
+    DateTime _lockedUntil;
     public event Action<string>? Log;
     /// 接続中の端末一覧 (表示用)
     public event Action<IReadOnlyList<string>>? ClientsChanged;
@@ -78,24 +88,53 @@ public sealed class CastServer : IDisposable
     }
 
     /// 最初の逆方向クライアントが来たときに Windows の実デバイスを開く
+    readonly SemaphoreSlim _reverseOpen = new(1, 1);
+
     IAudioBridge? ReverseBridgeOrNull()
     {
-        lock (_lock)
+        lock (_lock) if (_reverse != null) return _reverse;
+        // デバイスを開く処理 (録音スレッドの開始) は _lock の外で、ただし同時に 2 つ開かないように
+        _reverseOpen.Wait();
+        try
         {
-            if (_reverse != null) return _reverse;
+            lock (_lock) if (_reverse != null) return _reverse;
+            IAudioBridge r;
             try
             {
-                var r = _reverseFactory();
+                r = _reverseFactory();
                 r.SpeakerData += pcm => OnSpeaker(pcm, reverse: true);
                 r.Start();
-                _reverse = r;
-                Log?.Invoke($"逆方向オーディオ: {r.Name}");
             }
             catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidOperationException)
             {
                 Log?.Invoke($"Windows のマイク / スピーカーを開けませんでした: {ex.Message}");
+                return null;
             }
-            return _reverse;
+            Log?.Invoke($"逆方向オーディオ: {r.Name}");
+            lock (_lock) _reverse = r;
+            return r;
+        }
+        finally { _reverseOpen.Release(); }
+    }
+
+    bool IsLockedOut()
+    {
+        lock (_failures) return DateTime.Now < _lockedUntil;
+    }
+
+    void RecordFailure()
+    {
+        lock (_failures)
+        {
+            var now = DateTime.Now;
+            _failures.Enqueue(now);
+            while (_failures.Count > 0 && now - _failures.Peek() > LockoutWindow) _failures.Dequeue();
+            if (_failures.Count >= LockoutFailures)
+            {
+                _lockedUntil = now + LockoutWindow;
+                _failures.Clear();
+                Log?.Invoke($"ペアリングコードの失敗が続いたため、{LockoutWindow.TotalMinutes:0} 分間すべての接続を拒否します。");
+            }
         }
     }
 
@@ -161,13 +200,25 @@ public sealed class CastServer : IDisposable
                     CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
                 }, helloCts.Token);
 
-                var (type, payload) = await Frame.ReadAsync(stream, helloCts.Token, Frame.MaxHelloPayload);
+                if (IsLockedOut())
+                {
+                    await stream.WriteAsync(Frame.Encode(FrameType.AuthFailed, ReadOnlySpan<byte>.Empty), ct);
+                    return;
+                }
+                var (type, payload) = await Frame.ReadAsync(stream, helloCts.Token, Frame.MaxHelloPayload, allowVideo: false);
                 var hello = type == FrameType.Hello ? Hello.Parse(payload) : null;
                 if (hello == null || !Pairing.Matches(PairingCode, hello.Code))
                 {
+                    RecordFailure();
                     Log?.Invoke($"ペアリングコード不一致のため拒否: {client.Endpoint}");
                     await Task.Delay(FailDelay, ct); // 総当たり対策
                     await stream.WriteAsync(Frame.Encode(FrameType.AuthFailed, ReadOnlySpan<byte>.Empty), ct);
+                    return;
+                }
+                if (hello.Reverse && !AllowReverse)
+                {
+                    Log?.Invoke($"逆方向の接続を拒否: {hello.Name} (設定で「Mac から Windows のマイクを使うことを許可」をオンにしてください)");
+                    await stream.WriteAsync(Frame.Encode(FrameType.ReverseDenied, ReadOnlySpan<byte>.Empty), ct);
                     return;
                 }
                 lock (_lock)
@@ -202,7 +253,11 @@ public sealed class CastServer : IDisposable
                 }
 
                 Log?.Invoke($"接続: {client.Name} ({client.Endpoint}, {(client.Opus ? "Opus" : "PCM")}{(client.Reverse ? ", 逆方向" : "")})");
-                if (client.Reverse && ReverseBridgeOrNull() is { } rb) rb.MicBufferMs = hello.BufferMs;
+                if (client.Reverse && ReverseBridgeOrNull() is { } rb)
+                {
+                    rb.MicBufferMs = hello.BufferMs;
+                    ReverseStarted?.Invoke(client.Name);
+                }
                 ClientHello?.Invoke(client.Name);
                 RaiseClientsChanged();
                 var reply = JsonSerializer.SerializeToUtf8Bytes(new
@@ -281,14 +336,17 @@ public sealed class CastServer : IDisposable
             if (!authed) Interlocked.Decrement(ref _pending);
             client.Out.Writer.TryComplete();
             bool removed;
+            IAudioBridge? closeReverse = null;
             lock (_lock)
             {
                 removed = _clients.Remove(client);
                 if (_micOwner == client) _micOwner = _clients.LastOrDefault(c => c.WantsMic && !c.Reverse);
                 if (_cameraOwner == client) _cameraOwner = _clients.LastOrDefault(c => c.WantsCamera);
                 // 逆方向クライアントがいなくなったら実デバイスを閉じる
-                if (_reverse != null && !_clients.Any(c => c.Reverse)) { _reverse.Dispose(); _reverse = null; }
+                // (Dispose は録音スレッドの終了を待つので、録音スレッドが取りに来るこのロックの外で行う)
+                if (_reverse != null && !_clients.Any(c => c.Reverse)) { closeReverse = _reverse; _reverse = null; }
             }
+            closeReverse?.Dispose();
             if (removed) RaiseClientsChanged();
             stream.Dispose();
             tcp.Dispose();
@@ -366,7 +424,9 @@ public sealed class CastServer : IDisposable
     {
         _cts.Cancel();
         _listener.Stop();
-        lock (_lock) { _reverse?.Dispose(); _reverse = null; }
+        IAudioBridge? r;
+        lock (_lock) { r = _reverse; _reverse = null; }
+        r?.Dispose();
     }
 
     sealed record Hello(string Name, string? Code, string Codec, bool Mic, bool Speaker, int BufferMs, bool Reverse, bool Camera)

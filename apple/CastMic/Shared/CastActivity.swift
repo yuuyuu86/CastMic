@@ -14,6 +14,8 @@ struct CastActivityAttributes: ActivityAttributes {
 /// Live Activity のボタン。LiveActivityIntent はアプリ本体のプロセスで実行される
 struct ToggleMuteIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "マイクのミュート切り替え"
+    /// ショートカット等には出さない (Live Activity のボタン専用)
+    static let isDiscoverable = false
     init() {}
 
     func perform() async throws -> some IntentResult {
