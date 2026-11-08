@@ -6,6 +6,7 @@ enum FrameType: UInt8 {
     case micAudio = 2
     case speakerAudio = 3
     case ping = 4
+    case authFailed = 5
 }
 
 enum Frame {
@@ -29,7 +30,7 @@ enum Frame {
             guard buffer[b] == 0x43, buffer[b + 1] == 0x4D else { throw CastError.badMagic }
             let type = FrameType(rawValue: buffer[b + 2])
             let len = Int(buffer[b + 4]) | Int(buffer[b + 5]) << 8 | Int(buffer[b + 6]) << 16 | Int(buffer[b + 7]) << 24
-            guard len <= 1 << 20 else { throw CastError.frameTooLarge }
+            guard len <= 64 * 1024 else { throw CastError.frameTooLarge }
             guard buffer.count >= headerSize + len else { break }
             out.append((type, Data(buffer[(b + headerSize)..<(b + headerSize + len)])))
             buffer.removeFirst(headerSize + len)

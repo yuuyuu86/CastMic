@@ -37,7 +37,11 @@ public sealed class CableBridge : IAudioBridge
         using var en = new MMDeviceEnumerator();
         var cable = en.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active)
             .FirstOrDefault(d => d.FriendlyName.Contains("CABLE Input", StringComparison.OrdinalIgnoreCase));
-        return cable == null ? null : new CableBridge(cable);
+        if (cable == null) return null;
+        // 既定の再生デバイスが CABLE Input だとマイク音声をループバックで拾って送り返してしまう
+        using var def = en.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        if (def.ID == cable.ID) throw new InvalidOperationException("既定の再生デバイスが CABLE Input になっています。サウンド設定で別のスピーカーを既定にしてください。");
+        return new CableBridge(cable);
     }
 
     public void Start()

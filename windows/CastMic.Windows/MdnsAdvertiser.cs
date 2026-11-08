@@ -24,12 +24,12 @@ public sealed class MdnsAdvertiser : IDisposable
     const uint DNS_QUERY_REQUEST_VERSION1 = 1;
     const uint DNS_REQUEST_PENDING = 9506;
 
-    readonly RegisterComplete _callback; // GC されないよう保持
+    // 登録解除の完了コールバックはオブジェクト破棄後に来ることがあるので static で保持
+    static readonly RegisterComplete Callback = (_, _, inst) => { if (inst != IntPtr.Zero) DnsServiceFreeInstance(inst); };
     IntPtr _instance;
-    DNS_SERVICE_REGISTER_REQUEST _request;
-    bool _registered;
-
-    public MdnsAdvertiser() => _callback = (_, _, inst) => { if (inst != IntPtr.Zero) DnsServiceFreeInstance(inst); };
+    // 非同期 API なのでリクエストはアンマネージドメモリに置き、移動・解放されないようにする
+    IntPtr _request;
+    bool _registered, _registeredOnce;
 
     public bool Start(ushort port)
     {
@@ -38,29 +38,33 @@ public sealed class MdnsAdvertiser : IDisposable
             IntPtr.Zero, IntPtr.Zero, port, 0, 0, 0, IntPtr.Zero, IntPtr.Zero);
         if (_instance == IntPtr.Zero) return false;
 
-        _request = new DNS_SERVICE_REGISTER_REQUEST
+        _request = Marshal.AllocHGlobal(Marshal.SizeOf<DNS_SERVICE_REGISTER_REQUEST>());
+        Marshal.StructureToPtr(new DNS_SERVICE_REGISTER_REQUEST
         {
             Version = DNS_QUERY_REQUEST_VERSION1,
             pServiceInstance = _instance,
-            pRegisterCompletionCallback = Marshal.GetFunctionPointerForDelegate(_callback),
-        };
-        _registered = DnsServiceRegister(ref _request, IntPtr.Zero) == DNS_REQUEST_PENDING;
+            pRegisterCompletionCallback = Marshal.GetFunctionPointerForDelegate(Callback),
+        }, _request, false);
+        _registered = DnsServiceRegister(_request, IntPtr.Zero) == DNS_REQUEST_PENDING;
+        _registeredOnce |= _registered;
         return _registered;
     }
 
     public void Dispose()
     {
-        if (_registered) { DnsServiceDeRegister(ref _request, IntPtr.Zero); _registered = false; }
-        if (_instance != IntPtr.Zero) { DnsServiceFreeInstance(_instance); _instance = IntPtr.Zero; }
+        if (_registered) { DnsServiceDeRegister(_request, IntPtr.Zero); _registered = false; }
+        // _request は登録解除が非同期に参照し得るので、プロセス終了まで解放しない (1 回だけの小さなリーク)
+        if (_instance != IntPtr.Zero && !_registeredOnce) { DnsServiceFreeInstance(_instance); }
+        _instance = IntPtr.Zero;
     }
 
     [DllImport("dnsapi.dll", CharSet = CharSet.Unicode)]
     static extern IntPtr DnsServiceConstructInstance(string serviceName, string hostName, IntPtr ip4, IntPtr ip6,
         ushort port, ushort priority, ushort weight, uint propertiesCount, IntPtr keys, IntPtr values);
     [DllImport("dnsapi.dll")]
-    static extern uint DnsServiceRegister(ref DNS_SERVICE_REGISTER_REQUEST request, IntPtr cancel);
+    static extern uint DnsServiceRegister(IntPtr request, IntPtr cancel);
     [DllImport("dnsapi.dll")]
-    static extern uint DnsServiceDeRegister(ref DNS_SERVICE_REGISTER_REQUEST request, IntPtr cancel);
+    static extern uint DnsServiceDeRegister(IntPtr request, IntPtr cancel);
     [DllImport("dnsapi.dll")]
     static extern void DnsServiceFreeInstance(IntPtr instance);
 }

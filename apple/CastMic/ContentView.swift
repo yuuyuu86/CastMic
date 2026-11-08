@@ -10,6 +10,18 @@ struct ContentView: View {
             Form {
                 if !session.isActive {
                     Section {
+                        TextField("6 桁のコード", text: $session.pairingCode)
+                            .monospacedDigit()
+                            #if os(iOS)
+                            .keyboardType(.numberPad)
+                            #endif
+                    } header: {
+                        Text("ペアリングコード")
+                    } footer: {
+                        Text("Windows の CastMic ウィンドウに表示されているコードです。")
+                    }
+
+                    Section {
                         if discovery.hosts.isEmpty {
                             Label("検索中… (Windows で CastMic を起動してください)", systemImage: "magnifyingglass")
                                 .foregroundStyle(.secondary)

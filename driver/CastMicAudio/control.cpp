@@ -21,9 +21,12 @@ NTSTATUS CreateControlDevice(PDRIVER_OBJECT DriverObject)
     RtlInitUnicodeString(&name, CASTMIC_DEVICE_NAME);
     RtlInitUnicodeString(&link, CASTMIC_DOS_DEVICE_NAME);
 
-    // 一般ユーザーの CastMic.exe から開けるよう Everyone に RW を与える
+    // 一般ユーザーの CastMic.exe から開けるよう Everyone に RW を与える。
+    // その代わり Exclusive=TRUE で同時に 1 ハンドルしか開けないようにし、
+    // CastMic.exe が開いている間は他のプロセスがスピーカー音声を盗み読みできないようにする。
+    // (Everyone は AppContainer / 低整合性プロセスを含まない)
     NTSTATUS status = IoCreateDeviceSecure(
-        DriverObject, 0, &name, FILE_DEVICE_UNKNOWN, FILE_DEVICE_SECURE_OPEN, FALSE,
+        DriverObject, 0, &name, FILE_DEVICE_UNKNOWN, FILE_DEVICE_SECURE_OPEN, TRUE,
         &SDDL_DEVOBJ_SYS_ALL_ADM_RWX_WORLD_RW_RES_R, &GUID_CastMicControlClass, &g_ControlDevice);
     if (!NT_SUCCESS(status)) return status;
 
@@ -64,6 +67,10 @@ NTSTATUS DispatchControlDevice(PDEVICE_OBJECT DeviceObject, PIRP Irp)
     switch (sp->MajorFunction)
     {
     case IRP_MJ_CREATE:
+        // 新しい利用者に前の利用者の音声が渡らないよう空にする
+        g_MicRing.Clear();
+        g_SpkRing.Clear();
+        break;
     case IRP_MJ_CLOSE:
     case IRP_MJ_CLEANUP:
         break;

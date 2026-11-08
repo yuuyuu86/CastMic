@@ -8,6 +8,14 @@ final class CastSession {
     enum Status: Equatable { case idle, connecting, connected, reconnecting, error(String) }
 
     var host: String = UserDefaults.standard.string(forKey: "host") ?? ""
+    /// Windows に表示される 6 桁のコード (Keychain に保存)
+    var pairingCode: String = Keychain.load("pairingCode") ?? "" {
+        didSet {
+            let digits = String(pairingCode.filter { $0.isASCII && $0.isNumber }.prefix(6))
+            if digits != pairingCode { pairingCode = digits; return }
+            Keychain.save("pairingCode", digits)
+        }
+    }
     var status: Status = .idle
     var connectedName: String?
     var micEnabled = true { didSet { audio?.micEnabled = micEnabled } }
@@ -39,6 +47,10 @@ final class CastSession {
     }
 
     func connect() {
+        guard pairingCode.count == 6 else {
+            status = .error("6 桁のペアリングコードを入力してください")
+            return
+        }
         let h = host.trimmingCharacters(in: .whitespaces)
         guard !h.isEmpty else { return }
         UserDefaults.standard.set(h, forKey: "host")
@@ -46,6 +58,10 @@ final class CastSession {
     }
 
     func connect(to endpoint: NWEndpoint, label: String) {
+        guard pairingCode.count == 6 else {
+            status = .error("6 桁のペアリングコードを入力してください")
+            return
+        }
         disconnect()
         target = (endpoint, label)
         open()
@@ -76,14 +92,23 @@ final class CastSession {
             case .ping: // Windows からのエコー
                 let rtt = Self.rtt(payload)
                 Task { @MainActor in self?.latencyMs = rtt }
+            case .authFailed:
+                Task { @MainActor in self?.authFailed() }
             case .hello:
                 let name = (try? JSONSerialization.jsonObject(with: payload) as? [String: Any])?["name"] as? String
                 Task { @MainActor in self?.connectedName = name }
             default: break
             }
         }
-        c.onState = { [weak self] st in
-            Task { @MainActor in self?.handle(st) }
+        c.onState = { [weak self] conn, st in
+            Task { @MainActor in
+                // 置き換え済みの古い接続からの通知は無視
+                guard let self, self.connection === conn else { return }
+                self.handle(st)
+            }
+        }
+        a.onError = { [weak self] m in
+            Task { @MainActor in self?.lost(m) }
         }
         connection = c
         audio = a
@@ -104,7 +129,7 @@ final class CastSession {
         switch st {
         case .connecting: break
         case .ready:
-            let hello = try? JSONSerialization.data(withJSONObject: ["name": Self.deviceName, "version": 1])
+            let hello = try? JSONSerialization.data(withJSONObject: ["name": Self.deviceName, "version": 1, "code": pairingCode])
             connection?.send(.hello, hello ?? Data())
             do {
                 try audio?.start()
@@ -120,6 +145,14 @@ final class CastSession {
         case .closed:
             if status == .connected { lost("切断されました") }
         }
+    }
+
+    /// コード違いは再試行しても無駄なので自動再接続しない
+    private func authFailed() {
+        target = nil
+        retryTask?.cancel(); retryTask = nil
+        teardown()
+        status = .error("ペアリングコードが違います。Windows の CastMic に表示されているコードを入力してください。")
     }
 
     /// 接続が切れた: 自動再接続が有効なら 2 秒後に再試行

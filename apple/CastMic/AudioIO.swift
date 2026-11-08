@@ -22,8 +22,15 @@ final class AudioIO: @unchecked Sendable {
     /// エコーキャンセル + ノイズ抑制
     let voiceProcessing: Bool
 
+    private var running = false
+    private var observers: [NSObjectProtocol] = []
+
     init(voiceProcessing: Bool) {
         self.voiceProcessing = voiceProcessing
+    }
+
+    deinit {
+        observers.forEach(NotificationCenter.default.removeObserver)
     }
 
     func start() throws {
@@ -48,16 +55,53 @@ final class AudioIO: @unchecked Sendable {
         engine.prepare()
         try engine.start()
         player.play()
+        lock.withLock { running = true }
+        observeRestarts()
     }
 
+    /// デバイス変更 (イヤホン抜き差し・Mac の入力切替) や電話着信の後にエンジンを立て直す
+    private func observeRestarts() {
+        guard observers.isEmpty else { return }
+        let nc = NotificationCenter.default
+        observers.append(nc.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+            self?.restart()
+        })
+        #if os(iOS)
+        observers.append(nc.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] n in
+            guard let raw = n.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  AVAudioSession.InterruptionType(rawValue: raw) == .ended else { return }
+            self?.restart()
+        })
+        observers.append(nc.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.restart()
+        })
+        #endif
+    }
+
+    private func restart() {
+        guard lock.withLock({ running }) else { return }
+        stopEngine()
+        do { try start() } catch { onError?("オーディオ再開失敗: \(error.localizedDescription)") }
+    }
+
+    var onError: ((String) -> Void)?
+
     func stop() {
-        engine.inputNode.removeTap(onBus: 0)
-        player.stop()
-        engine.stop()
-        lock.withLock { queuedFrames = 0 }
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers.removeAll()
+        lock.withLock { running = false }
+        stopEngine()
         #if os(iOS)
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         #endif
+    }
+
+    private func stopEngine() {
+        engine.inputNode.removeTap(onBus: 0)
+        player.stop()
+        engine.stop()
+        if engine.attachedNodes.contains(player) { engine.detach(player) }
+        lock.withLock { queuedFrames = 0; running = false }
     }
 
     private func handleMic(_ buf: AVAudioPCMBuffer) {
@@ -82,8 +126,9 @@ final class AudioIO: @unchecked Sendable {
 
     /// Windows から届いたスピーカー音声を再生キューへ
     func playSpeaker(_ data: Data) {
-        guard speakerEnabled else { return }
+        guard speakerEnabled, lock.withLock({ running }) else { return }
         let frames = AVAudioFrameCount(data.count / 4)
+        guard frames <= maxQueued else { return }
         guard frames > 0, let buf = AVAudioPCMBuffer(pcmFormat: playFormat, frameCapacity: frames) else { return }
         // 遅延が溜まりすぎたら捨てる
         let over = lock.withLock { queuedFrames + frames > maxQueued }

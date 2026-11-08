@@ -5,7 +5,8 @@ import Network
 final class Connection: @unchecked Sendable {
     enum State: Equatable { case connecting, ready, failed(String), closed }
 
-    var onState: (@Sendable (State) -> Void)?
+    // コールバックには自分自身を渡す: 古い接続からの遅れた通知を呼び出し側で無視できるように
+    var onState: (@Sendable (Connection, State) -> Void)?
     var onFrame: (@Sendable (FrameType, Data) -> Void)?
 
     private let conn: NWConnection
@@ -30,15 +31,15 @@ final class Connection: @unchecked Sendable {
             guard let self else { return }
             switch st {
             case .ready:
-                self.onState?(.ready)
+                self.onState?(self, .ready)
                 self.receive()
-            case .failed(let e): self.onState?(.failed(e.localizedDescription))
-            case .waiting(let e): self.onState?(.failed(e.localizedDescription))
-            case .cancelled: self.onState?(.closed)
+            case .failed(let e): self.onState?(self, .failed(e.localizedDescription))
+            case .waiting(let e): self.onState?(self, .failed(e.localizedDescription))
+            case .cancelled: self.onState?(self, .closed)
             default: break
             }
         }
-        onState?(.connecting)
+        onState?(self, .connecting)
         conn.start(queue: queue)
     }
 
@@ -57,9 +58,9 @@ final class Connection: @unchecked Sendable {
                     if let t { self.onFrame?(t, p) }
                 }
             } catch {
-                self.onState?(.failed(error.localizedDescription)); self.conn.cancel(); return
+                self.onState?(self, .failed(error.localizedDescription)); self.conn.cancel(); return
             }
-            if let err { self.onState?(.failed(err.localizedDescription)); return }
+            if let err { self.onState?(self, .failed(err.localizedDescription)); return }
             if done { self.conn.cancel(); return }
             self.receive()
         }

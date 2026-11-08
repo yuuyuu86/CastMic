@@ -11,6 +11,9 @@ public sealed class MainForm : Form
 
     readonly Label _status = new() { Dock = DockStyle.Top, Height = 28, Padding = new Padding(8, 6, 8, 0) };
     readonly Label _ips = new() { Dock = DockStyle.Top, Height = 90, Padding = new Padding(8, 4, 8, 0) };
+    readonly Panel _pairRow = new() { Dock = DockStyle.Top, Height = 40, Padding = new Padding(8, 4, 8, 4) };
+    readonly Label _code = new() { Dock = DockStyle.Fill, Font = new Font(FontFamily.GenericMonospace, 14, FontStyle.Bold), TextAlign = ContentAlignment.MiddleLeft };
+    readonly Button _regen = new() { Dock = DockStyle.Right, Width = 110, Text = "コードを再生成" };
     readonly CheckBox _autostart = new() { Dock = DockStyle.Top, Height = 28, Padding = new Padding(8, 0, 8, 0), Text = "Windows 起動時にバックグラウンドで開始" };
     readonly TextBox _log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical };
     readonly NotifyIcon _tray = new() { Icon = SystemIcons.Application, Text = "CastMic", Visible = true };
@@ -26,6 +29,9 @@ public sealed class MainForm : Form
         Width = 460; Height = 420;
         Controls.Add(_log);
         Controls.Add(_autostart);
+        Controls.Add(_pairRow);
+        _pairRow.Controls.Add(_code);
+        _pairRow.Controls.Add(_regen);
         Controls.Add(_ips);
         Controls.Add(_status);
 
@@ -37,6 +43,14 @@ public sealed class MainForm : Form
 
         _autostart.Checked = Registry.CurrentUser.OpenSubKey(RunKey)?.GetValue("CastMic") != null;
         _autostart.CheckedChanged += (_, _) => SetAutostart(_autostart.Checked);
+
+        _regen.Click += (_, _) =>
+        {
+            var code = Pairing.Regenerate();
+            ShowCode(code);
+            if (_server != null) { _server.PairingCode = code; _server.DisconnectActive(); }
+            AppendLog("ペアリングコードを再生成しました。接続中の端末は切断されました。");
+        };
 
         Load += (_, _) => StartAll();
         Shown += (_, _) => { if (_startHidden) Hide(); };
@@ -57,11 +71,22 @@ public sealed class MainForm : Form
         else key.DeleteValue("CastMic", false);
     }
 
+    void ShowCode(string code) => _code.Text = $"ペアリングコード: {code[..3]} {code[3..]}";
+
     void StartAll()
     {
+        var code = Pairing.Load();
+        ShowCode(code);
         _ips.Text = "iPhone / Mac にこのアドレスを入力 (同じネットワークなら自動で表示されます):\r\n"
             + string.Join("\r\n", LocalAddresses().Select(a => $"  {a}"));
-        _bridge = (IAudioBridge?)DriverBridge.TryOpen() ?? CableBridge.TryCreate();
+        try { _bridge = (IAudioBridge?)DriverBridge.TryOpen() ?? CableBridge.TryCreate(); }
+        catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
+        {
+            _status.Text = "オーディオの初期化に失敗しました";
+            AppendLog(ex.Message);
+            ShowWindow();
+            return;
+        }
         if (_bridge == null)
         {
             _status.Text = "オーディオデバイスが見つかりません";
@@ -70,8 +95,9 @@ public sealed class MainForm : Form
             return;
         }
         AppendLog($"オーディオ: {_bridge.Name}");
+        if (_bridge is DriverBridge db) db.Error += AppendLog;
         _bridge.Start();
-        _server = new CastServer(_bridge);
+        _server = new CastServer(_bridge, code);
         _server.Log += AppendLog;
         _server.ClientHello += json => Notify($"{ParseName(json)} が接続しました");
         _server.ClientChanged += c => Ui(() =>
