@@ -62,6 +62,8 @@ final class CastSession {
     var onChange: (() -> Void)?
 
     private var candidates: [Candidate] = []
+    /// 今回の接続先に一度でもつながったか (初回接続の失敗は再試行せずエラーにする)
+    private var everConnected = false
     private var candidateIndex = 0
     private var connection: Connection?
     private var audio: AudioIO?
@@ -105,6 +107,7 @@ final class CastSession {
         disconnect()
         candidates = list
         candidateIndex = 0
+        everConnected = false
         open()
     }
 
@@ -253,6 +256,7 @@ final class CastSession {
             do {
                 try audio?.start()
                 status = .connected
+                everConnected = true
                 startPing()
                 onChange?()
             } catch {
@@ -305,9 +309,12 @@ final class CastSession {
     /// 接続が切れた: 自動再接続が有効なら 2 秒後に最初の候補から再試行
     private func lost(_ message: String) {
         teardown()
-        guard !candidates.isEmpty, autoReconnect else {
+        guard !candidates.isEmpty, autoReconnect, everConnected else {
+            let first = !everConnected
             candidates = []
-            status = .error(message)
+            status = .error(first
+                ? "PC に接続できませんでした。Windows で CastMic が起動しているか、同じネットワークにいるか確認してください。"
+                : message)
             onChange?()
             return
         }

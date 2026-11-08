@@ -109,6 +109,7 @@ struct ContentView: View {
     }
 
     @ViewBuilder private var connectedSection: some View {
+        if session.status == .connected {
         Section {
             Button {
                 session.toggleMute()
@@ -121,6 +122,7 @@ struct ContentView: View {
             .buttonStyle(.borderedProminent)
             .tint(session.muted ? .red : .accentColor)
             .listRowInsets(EdgeInsets())
+        }
         }
 
         Section {

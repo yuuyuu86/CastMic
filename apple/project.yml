@@ -9,6 +9,9 @@ targets:
     type: application
     supportedDestinations: [iOS, macOS]
     sources: [CastMic]
+    dependencies:
+      - target: CastMicWidget
+        destinationFilters: [iOS]
     info:
       path: CastMic/Info.plist
       properties:
@@ -27,9 +30,29 @@ targets:
         INFOPLIST_KEY_NSCameraUsageDescription: "Windows に表示された QR コードを読み取るために使用します。"
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Windows PC と接続するために使用します。"
         INFOPLIST_KEY_UIBackgroundModes: audio
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         ENABLE_APP_SANDBOX: YES
         ENABLE_USER_SELECTED_FILES: readonly
         ENABLE_INCOMING_NETWORK_CONNECTIONS: NO
         ENABLE_OUTGOING_NETWORK_CONNECTIONS: YES
         ENABLE_RESOURCE_ACCESS_AUDIO_INPUT: YES
+  CastMicWidget:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources: [CastMicWidget, CastMic/Shared]
+    info:
+      path: CastMicWidget/Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yuuyuu86.castmic.widget
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: CastMic
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        SKIP_INSTALL: YES

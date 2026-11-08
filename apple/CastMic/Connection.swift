@@ -12,14 +12,23 @@ final class Connection: @unchecked Sendable {
     var onState: (@Sendable (Connection, State) -> Void)?
     var onFrame: (@Sendable (FrameType, Data) -> Void)?
 
+    /// 証明書検証ブロックと共有する状態 (検証ブロックは NWConnection 作成前に登録する必要があるため別オブジェクト)
+    private final class PeerState: @unchecked Sendable {
+        let lock = NSLock()
+        var fingerprint: String?
+        var mismatch = false
+        var ready = false
+    }
+
     private let conn: NWConnection
     private let queue = DispatchQueue(label: "castmic.net")
     private var rx = Data()
-    private let lock = NSLock()
-    private var _peerFingerprint: String?
-    private var _mismatch = false
+    private let peer = PeerState()
+    private var lock: NSLock { peer.lock }
+    private var _mismatch: Bool { peer.mismatch }
+    private var _ready: Bool { get { peer.ready } set { peer.ready = newValue } }
     /// TLS ハンドシェイクで見えたサーバー証明書の指紋 (大文字 16 進)
-    var peerFingerprint: String? { lock.withLock { _peerFingerprint } }
+    var peerFingerprint: String? { peer.lock.withLock { peer.fingerprint } }
 
     /// - Parameter pinnedFingerprint: 記憶済みの指紋。nil なら初回接続として任意の証明書を受け入れる
     init(endpoint: NWEndpoint, pinnedFingerprint: String?) {
@@ -29,11 +38,9 @@ final class Connection: @unchecked Sendable {
         let tls = NWProtocolTLS.Options()
         let sec = tls.securityProtocolOptions
         sec_protocol_options_set_min_tls_protocol_version(sec, .TLSv12)
-        let params = NWParameters(tls: tls, tcp: tcp)
-        params.serviceClass = .interactiveVoice
-        conn = NWConnection(to: endpoint, using: params)
-
-        sec_protocol_options_set_verify_block(sec, { [weak self] _, trust, complete in
+        // 注意: NWParameters 作成時にオプションがコピーされるので、検証ブロックはそれより前に登録する
+        let peer = self.peer
+        sec_protocol_options_set_verify_block(sec, { _, trust, complete in
             let secTrust = sec_trust_copy_ref(trust).takeRetainedValue()
             guard let chain = SecTrustCopyCertificateChain(secTrust) as? [SecCertificate], let leaf = chain.first else {
                 complete(false); return
@@ -41,12 +48,15 @@ final class Connection: @unchecked Sendable {
             let der = SecCertificateCopyData(leaf) as Data
             let fp = SHA256.hash(data: der).map { String(format: "%02X", $0) }.joined()
             let ok = pinnedFingerprint == nil || pinnedFingerprint == fp
-            self?.lock.withLock {
-                self?._peerFingerprint = fp
-                self?._mismatch = !ok
+            peer.lock.withLock {
+                peer.fingerprint = fp
+                peer.mismatch = !ok
             }
             complete(ok)
         }, queue)
+        let params = NWParameters(tls: tls, tcp: tcp)
+        params.serviceClass = .interactiveVoice
+        conn = NWConnection(to: endpoint, using: params)
     }
 
     static func shortFingerprint(_ fp: String) -> String {
@@ -61,6 +71,7 @@ final class Connection: @unchecked Sendable {
             guard let self else { return }
             switch st {
             case .ready:
+                self.lock.withLock { self._ready = true }
                 self.onState?(self, .ready)
                 self.receive()
             case .failed(let e), .waiting(let e):
@@ -76,7 +87,15 @@ final class Connection: @unchecked Sendable {
         }
         onState?(self, .connecting)
         conn.start(queue: queue)
+        // Bonjour 名の解決などは失敗を返さず待ち続けることがあるので、自前で打ち切る
+        queue.asyncAfter(deadline: .now() + Self.connectTimeout) { [weak self] in
+            guard let self, !self.lock.withLock({ self._ready }) else { return }
+            self.onState?(self, .failed("接続がタイムアウトしました"))
+            self.conn.cancel()
+        }
     }
+
+    static let connectTimeout: TimeInterval = 5
 
     func send(_ type: FrameType, _ payload: Data) {
         conn.send(content: Frame.encode(type, payload), completion: .idempotent)
