@@ -16,6 +16,7 @@ public sealed class CastServer : IDisposable
 
     public event Action<string>? Log;
     public event Action<string?>? ClientChanged;
+    public event Action<string>? ClientHello;
 
     public CastServer(IAudioBridge bridge)
     {
@@ -61,6 +62,7 @@ public sealed class CastServer : IDisposable
                     case FrameType.Hello:
                         var name = Encoding.UTF8.GetString(payload);
                         Log?.Invoke($"Hello: {name}");
+                        ClientHello?.Invoke(name);
                         Send(FrameType.Hello, Encoding.UTF8.GetBytes($"{{\"name\":\"{Environment.MachineName}\",\"version\":1}}"));
                         break;
                     case FrameType.Ping: Send(FrameType.Ping, payload); break;

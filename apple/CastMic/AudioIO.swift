@@ -17,17 +17,26 @@ final class AudioIO: @unchecked Sendable {
 
     var micEnabled = true
     var speakerEnabled = true
+    /// マイク音量 (倍率)
+    var micGain: Float = 1
+    /// エコーキャンセル + ノイズ抑制
+    let voiceProcessing: Bool
+
+    init(voiceProcessing: Bool) {
+        self.voiceProcessing = voiceProcessing
+    }
 
     func start() throws {
         #if os(iOS)
         let s = AVAudioSession.sharedInstance()
-        try s.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP, .mixWithOthers])
+        try s.setCategory(.playAndRecord, mode: voiceProcessing ? .voiceChat : .default, options: [.defaultToSpeaker, .allowBluetoothHFP, .mixWithOthers])
         try s.setPreferredSampleRate(Frame.sampleRate)
         try s.setPreferredIOBufferDuration(0.005)
         try s.setActive(true)
         #endif
 
         let input = engine.inputNode
+        try? input.setVoiceProcessingEnabled(voiceProcessing)
         let inFormat = input.outputFormat(forBus: 0)
         converter = AVAudioConverter(from: inFormat, to: micFormat)
         input.installTap(onBus: 0, bufferSize: 480, format: inFormat) { [weak self] buf, _ in
@@ -63,6 +72,11 @@ final class AudioIO: @unchecked Sendable {
             consumed = true; status.pointee = .haveData; return buf
         }
         guard err == nil, out.frameLength > 0, let p = out.int16ChannelData else { return }
+        if micGain != 1 {
+            for i in 0..<Int(out.frameLength) {
+                p[0][i] = Int16(max(-32768, min(32767, Float(p[0][i]) * micGain)))
+            }
+        }
         onMic?(Data(bytes: p[0], count: Int(out.frameLength) * 2))
     }
 

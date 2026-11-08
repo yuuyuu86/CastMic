@@ -9,6 +9,10 @@ targets:
     type: application
     supportedDestinations: [iOS, macOS]
     sources: [CastMic]
+    info:
+      path: CastMic/Info.plist
+      properties:
+        NSBonjourServices: [_castmic._tcp]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.yuuyuu86.castmic

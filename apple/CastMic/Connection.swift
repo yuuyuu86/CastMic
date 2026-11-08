@@ -12,13 +12,17 @@ final class Connection: @unchecked Sendable {
     private let queue = DispatchQueue(label: "castmic.net")
     private var rx = Data()
 
-    init(host: String, port: UInt16 = 48100) {
+    convenience init(host: String, port: UInt16 = 48100) {
+        self.init(endpoint: .hostPort(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!))
+    }
+
+    init(endpoint: NWEndpoint) {
         let tcp = NWProtocolTCP.Options()
         tcp.noDelay = true
         tcp.connectionTimeout = 5
         let params = NWParameters(tls: nil, tcp: tcp)
         params.serviceClass = .interactiveVoice
-        conn = NWConnection(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!, using: params)
+        conn = NWConnection(to: endpoint, using: params)
     }
 
     func start() {
