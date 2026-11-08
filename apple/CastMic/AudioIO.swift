@@ -36,7 +36,7 @@ final class AudioIO: @unchecked Sendable {
     func start() throws {
         #if os(iOS)
         let s = AVAudioSession.sharedInstance()
-        try s.setCategory(.playAndRecord, mode: voiceProcessing ? .voiceChat : .default, options: [.defaultToSpeaker, .allowBluetoothHFP, .mixWithOthers])
+        try s.setCategory(.playAndRecord, mode: voiceProcessing ? .voiceChat : .default, options: [.defaultToSpeaker, .bluetoothHFP, .mixWithOthers])
         try s.setPreferredSampleRate(Frame.sampleRate)
         try s.setPreferredIOBufferDuration(0.005)
         try s.setActive(true)
@@ -149,3 +149,10 @@ final class AudioIO: @unchecked Sendable {
         }
     }
 }
+
+#if os(iOS)
+extension AVAudioSession.CategoryOptions {
+    /// 新 SDK では allowBluetoothHFP、旧 SDK では allowBluetooth (同じ値)。どちらの Xcode でもビルドできるよう生の値で指定
+    static let bluetoothHFP = AVAudioSession.CategoryOptions(rawValue: 0x4)
+}
+#endif

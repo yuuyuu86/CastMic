@@ -12,7 +12,6 @@
 // --- new/delete (newdelete.cpp) ---
 PVOID __cdecl operator new(size_t size, POOL_FLAGS flags, ULONG tag);
 PVOID __cdecl operator new(size_t size, POOL_FLAGS flags);
-void __cdecl operator delete(PVOID p);
 void __cdecl operator delete(PVOID p, size_t);
 void __cdecl operator delete[](PVOID p);
 

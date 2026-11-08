@@ -1,4 +1,6 @@
 // ドライバエントリ / PnP 開始処理 / IRP ディスパッチの振り分け
+// portcls / ksmedia の GUID 実体をこの翻訳単位で定義する
+#define PUT_GUIDS_HERE
 #include "common.h"
 
 extern "C" DRIVER_INITIALIZE DriverEntry;
