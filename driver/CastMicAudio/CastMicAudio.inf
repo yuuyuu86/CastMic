@@ -1,0 +1,113 @@
+;
+; CastMicAudio.inf - CastMic 仮想オーディオドライバ
+; インストール: devcon install CastMicAudio.inf Root\CastMicAudio
+;
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = MEDIA
+ClassGuid   = {4d36e96c-e325-11ce-bfc1-08002be10318}
+Provider    = %ProviderName%
+DriverVer   = 11/08/2026,0.1.0.0
+CatalogFile = CastMicAudio.cat
+PnpLockdown = 1
+
+[SourceDisksNames]
+1 = %DiskName%
+
+[SourceDisksFiles]
+CastMicAudio.sys = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[Manufacturer]
+%MfgName% = CastMic, NT$ARCH$.10.0...16299
+
+[CastMic.NT$ARCH$.10.0...16299]
+%DeviceDesc% = CastMic_Device, Root\CastMicAudio
+
+;---------------------------------------------------------------- install
+
+[CastMic_Device.NT]
+Include   = ks.inf, wdmaudio.inf
+Needs     = KS.Registration, WDMAUDIO.Registration
+CopyFiles = CastMic_CopyFiles
+
+[CastMic_CopyFiles]
+CastMicAudio.sys
+
+[CastMic_Device.NT.Interfaces]
+AddInterface = %KSCATEGORY_AUDIO%,    %KSNAME_WaveSpeaker%,     CastMic.I.WaveSpeaker
+AddInterface = %KSCATEGORY_RENDER%,   %KSNAME_WaveSpeaker%,     CastMic.I.WaveSpeaker
+AddInterface = %KSCATEGORY_REALTIME%, %KSNAME_WaveSpeaker%,     CastMic.I.WaveSpeaker
+AddInterface = %KSCATEGORY_AUDIO%,    %KSNAME_TopologySpeaker%, CastMic.I.TopologySpeaker
+AddInterface = %KSCATEGORY_TOPOLOGY%, %KSNAME_TopologySpeaker%, CastMic.I.TopologySpeaker
+
+AddInterface = %KSCATEGORY_AUDIO%,    %KSNAME_WaveMic%,         CastMic.I.WaveMic
+AddInterface = %KSCATEGORY_CAPTURE%,  %KSNAME_WaveMic%,         CastMic.I.WaveMic
+AddInterface = %KSCATEGORY_REALTIME%, %KSNAME_WaveMic%,         CastMic.I.WaveMic
+AddInterface = %KSCATEGORY_AUDIO%,    %KSNAME_TopologyMic%,     CastMic.I.TopologyMic
+AddInterface = %KSCATEGORY_TOPOLOGY%, %KSNAME_TopologyMic%,     CastMic.I.TopologyMic
+
+[CastMic.I.WaveSpeaker]
+AddReg = CastMic.I.WaveSpeaker.AddReg
+[CastMic.I.WaveSpeaker.AddReg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%WaveSpeaker.Name%
+
+[CastMic.I.TopologySpeaker]
+AddReg = CastMic.I.TopologySpeaker.AddReg
+[CastMic.I.TopologySpeaker.AddReg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%TopologySpeaker.Name%
+
+[CastMic.I.WaveMic]
+AddReg = CastMic.I.WaveMic.AddReg
+[CastMic.I.WaveMic.AddReg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%WaveMic.Name%
+
+[CastMic.I.TopologyMic]
+AddReg = CastMic.I.TopologyMic.AddReg
+[CastMic.I.TopologyMic.AddReg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%TopologyMic.Name%
+
+;---------------------------------------------------------------- service
+
+[CastMic_Device.NT.Services]
+AddService = CastMicAudio, 0x00000002, CastMic_Service
+
+[CastMic_Service]
+DisplayName   = %SvcDesc%
+ServiceType   = 1   ; SERVICE_KERNEL_DRIVER
+StartType     = 3   ; SERVICE_DEMAND_START
+ErrorControl  = 1   ; SERVICE_ERROR_NORMAL
+ServiceBinary = %13%\CastMicAudio.sys
+
+;---------------------------------------------------------------- strings
+
+[Strings]
+ProviderName = "CastMic"
+MfgName      = "CastMic"
+DiskName     = "CastMic Install Disk"
+DeviceDesc   = "CastMic"
+SvcDesc      = "CastMic Virtual Audio"
+
+KSNAME_WaveSpeaker     = "WaveSpeaker"
+KSNAME_TopologySpeaker = "TopologySpeaker"
+KSNAME_WaveMic         = "WaveMic"
+KSNAME_TopologyMic     = "TopologyMic"
+
+WaveSpeaker.Name     = "CastMic Speaker Wave"
+TopologySpeaker.Name = "CastMic Speaker"
+WaveMic.Name         = "CastMic Microphone Wave"
+TopologyMic.Name     = "CastMic Microphone"
+
+Proxy.CLSID         = "{17CCA71B-ECD7-11D0-B908-00A0C9223196}"
+KSCATEGORY_AUDIO    = "{6994AD04-93EF-11D0-A3CC-00A0C9223196}"
+KSCATEGORY_RENDER   = "{65E8773E-8F56-11D0-A3B9-00A0C9223196}"
+KSCATEGORY_CAPTURE  = "{65E8773D-8F56-11D0-A3B9-00A0C9223196}"
+KSCATEGORY_REALTIME = "{EB115FFC-10C8-4964-831D-6DCB02E6F23F}"
+KSCATEGORY_TOPOLOGY = "{DDA54A40-1E4C-11D1-A050-405705C10000}"

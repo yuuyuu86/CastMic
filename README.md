@@ -13,13 +13,13 @@ iPhone / Mac を Windows の **マイク** と **スピーカー** として使�
 |---|---|
 | `apple/` | iOS / macOS 共通 SwiftUI アプリ (送信側) |
 | `windows/` | Windows 受信アプリ (C# / .NET 8, WinForms) |
-| `driver/` | Windows 仮想オーディオドライバ (WDK, 開発中) |
+| `driver/` | Windows 仮想オーディオドライバ (WDK / PortCls WaveRT) |
 | `docs/` | プロトコル仕様 |
 
 ## 現在の状態
 
 - Apple アプリ / Windows アプリ: 基本機能実装済み (Windows 側は未実機検証)
-- 自作ドライバ: 未実装 (設計とIOCTL定義のみ)。完成までは Windows アプリの **VB-CABLE フォールバック** で動作確認できる。
+- 自作ドライバ: コード実装済み・未ビルド (`driver/README.md`)。動くまでは Windows アプリの **VB-CABLE フォールバック** で動作確認できる。
 
 ## 使い方
 

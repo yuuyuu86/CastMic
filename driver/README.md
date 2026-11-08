@@ -2,24 +2,44 @@
 
 Windows に **CastMic Microphone** (入力) と **CastMic Speaker** (出力) を追加するカーネルモードドライバ。
 
+## 構成
+
+| ファイル | 内容 |
+|---|---|
+| `inc/CastMicIoctl.h` | ユーザーモードとの IOCTL 定義 (C# 側 `DriverBridge.cs` と一致させる) |
+| `CastMicAudio/adapter.cpp` | DriverEntry、Speaker / Mic の wave+topology フィルタ登録、IRP 振り分け |
+| `CastMicAudio/minwavert.cpp` | WaveRT ミニポート。10ms 高分解能タイマーで DMA バッファとリングバッファを相互コピー |
+| `CastMicAudio/mintopo.cpp` | 最小トポロジー (物理ピンのカテゴリで スピーカー/マイク を決める) |
+| `CastMicAudio/control.cpp` | `\\.\CastMicAudio` コントロールデバイスと IOCTL 処理 |
+| `CastMicAudio/ringbuffer.cpp` | 200ms のリングバッファ (溢れたら古いデータを捨てる) |
+| `CastMicAudio/CastMicAudio.inf` | INF (root 列挙デバイス) |
+
+フォーマットは 48kHz / 16bit 固定 (Speaker 2ch, Mic 1ch)。
+
 ## 状態
 
-- [x] ユーザーモードとの IOCTL インターフェース定義 (`inc/CastMicIoctl.h`)
-- [ ] ドライバ本体 (未着手)
+コードは書いたが **未ビルド・未検証** (macOS 上で作成したため)。初回ビルドでコンパイルエラーが出る可能性が高い。
 
-完成までは Windows アプリが VB-CABLE フォールバックで動作する。
+## ビルド・インストール (Windows)
 
-## 実装方針
+必要: Visual Studio 2022 + Windows Driver Kit (WDK)。**VM での検証を強く推奨** (バグは BSOD になる)。
 
-Microsoft の [SYSVAD サンプル](https://github.com/microsoft/Windows-driver-samples/tree/main/audio/sysvad) (PortCls / WaveRT miniport) をベースにする。
+1. `CastMicAudio.vcxproj` を Visual Studio で開き、`Release|x64` でビルド (テスト署名が自動で付く)
+2. テスト署名を許可して再起動 (管理者):
+   ```
+   bcdedit /set testsigning on
+   ```
+3. ビルド出力フォルダで、WDK の `devcon.exe` を使いインストール (管理者):
+   ```
+   devcon install CastMicAudio.inf Root\CastMicAudio
+   ```
+4. サウンド設定に「スピーカー (CastMic)」「マイク (CastMic)」が出れば成功。CastMic.exe を起動するとドライバを優先して使う
+5. アンインストール: `devcon remove Root\CastMicAudio`
 
-1. SYSVAD の `TabletAudioSample` から不要な endpoint を削り、Speaker (render, 48k/16bit/2ch) と Mic (capture, 48k/16bit/1ch) の 2 つだけ残す
-2. 各 WaveRT stream の DMA バッファ更新処理 (`CMiniportWaveRTStream::WriteBytes` / `ReadBytes` 相当) をリングバッファ読み書きに置き換える
-3. 追加のコントロールデバイス `\Device\CastMicAudio` を作り、`IRP_MJ_DEVICE_CONTROL` で上記 IOCTL を処理する
-4. INF 作成、テスト署名で動作確認 (`bcdedit /set testsigning on`)
-5. 配布は EV 証明書 + Microsoft の attestation signing が必要
+一般配布には EV コード署名証明書 + Microsoft Partner Center での attestation signing が必要。
 
-## 必要環境 (Windows PC)
+## 既知の制限 / TODO
 
-- Visual Studio 2022 + WDK
-- テスト用に別 PC / VM 推奨 (カーネルドライバのバグは BSOD になる)
+- 音量・ミュートノード無し (Windows の音量スライダーはソフトウェア処理になる)
+- イベント駆動モード (`IMiniportWaveRTStreamNotification`) 未対応 → ポーリングモードで動作
+- ジャック情報 (`KSPROPERTY_JACK_DESCRIPTION`) 未対応

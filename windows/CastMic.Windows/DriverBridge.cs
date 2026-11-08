@@ -49,7 +49,7 @@ public sealed class DriverBridge : IAudioBridge
             int got;
             fixed (byte* p = buf)
             {
-                // ドライバ側は 10ms 分溜まるまでブロックする想定
+                // ノンブロッキング: 溜まっている分だけ返る
                 if (!DeviceIoControl(_h, IOCTL_READ_SPEAKER, IntPtr.Zero, 0, (IntPtr)p, buf.Length, out got, IntPtr.Zero))
                 {
                     if (_cts.IsCancellationRequested) return;
@@ -57,6 +57,7 @@ public sealed class DriverBridge : IAudioBridge
                 }
             }
             if (got > 0) SpeakerData?.Invoke(buf.AsSpan(0, got).ToArray());
+            else Thread.Sleep(2);
         }
     }
 

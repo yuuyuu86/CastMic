@@ -14,7 +14,7 @@
 #define IOCTL_CASTMIC_WRITE_MIC \
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
-// out: s16le stereo PCM。レンダー用リングバッファから読み出す。
-// 10ms 分 (1920 byte) 溜まるまで IRP を保留し、CancelIoEx でキャンセル可能にすること
+// out: s16le stereo PCM。レンダー用リングバッファから読めるだけ読む (ノンブロッキング)。
+// 返り値のバイト数が 0 なら呼び出し側で少し待ってから再度呼ぶ
 #define IOCTL_CASTMIC_READ_SPEAKER \
     CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS)
