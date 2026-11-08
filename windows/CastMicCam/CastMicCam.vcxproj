@@ -29,7 +29,7 @@
     </ClCompile>
     <Link>
       <ModuleDefinitionFile>CastMicCam.def</ModuleDefinitionFile>
-      <AdditionalDependencies>mfplat.lib;mfuuid.lib;mfsensorgroup.lib;ole32.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>mfplat.lib;mfuuid.lib;mfsensorgroup.lib;runtimeobject.lib;ole32.lib;advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
