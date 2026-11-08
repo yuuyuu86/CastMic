@@ -1,0 +1,27 @@
+name: CastMic
+options:
+  bundleIdPrefix: com.yuuyuu86
+  deploymentTarget:
+    iOS: "17.0"
+    macOS: "14.0"
+targets:
+  CastMic:
+    type: application
+    supportedDestinations: [iOS, macOS]
+    sources: [CastMic]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yuuyuu86.castmic
+        GENERATE_INFOPLIST_FILE: YES
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "Windows のマイクとして音声を送信するために使用します。"
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Windows PC と接続するために使用します。"
+        INFOPLIST_KEY_UIBackgroundModes: audio
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        ENABLE_APP_SANDBOX: YES
+        ENABLE_USER_SELECTED_FILES: readonly
+        ENABLE_INCOMING_NETWORK_CONNECTIONS: NO
+        ENABLE_OUTGOING_NETWORK_CONNECTIONS: YES
+        ENABLE_RESOURCE_ACCESS_AUDIO_INPUT: YES

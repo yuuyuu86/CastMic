@@ -1,0 +1,14 @@
+.DS_Store
+# Xcode
+xcuserdata/
+DerivedData/
+build/
+*.xcodeproj/
+# .NET
+bin/
+obj/
+.vs/
+*.user
+# WDK
+x64/
+ARM64/
