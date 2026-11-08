@@ -1,6 +1,10 @@
 name: CastMic
 options:
   bundleIdPrefix: com.yuuyuu86
+settings:
+  base:
+    DEVELOPMENT_TEAM: 2PBVY8C5TF
+    CODE_SIGN_STYLE: Automatic
   deploymentTarget:
     iOS: "17.0"
     macOS: "14.0"
