@@ -56,6 +56,11 @@ jobs:
       - name: Build driver (x64, test-signed)
         run: msbuild driver/CastMicAudio/CastMicAudio.vcxproj /p:Configuration=Release /p:Platform=x64 /m
 
+      - name: Build virtual camera (x64)
+        run: |
+          msbuild windows/CastMicCam/CastMicCam.vcxproj /p:Configuration=Release /p:Platform=x64 /m
+          copy windows\CastMicCam\x64\Release\CastMicCam.dll out\app\
+
       - name: Collect driver package
         shell: pwsh
         run: |

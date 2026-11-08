@@ -14,6 +14,7 @@ iPhone / Mac を Windows の **マイク** と **スピーカー** として使�
 | `apple/` | iOS / macOS 共通 SwiftUI アプリ (送信側) |
 | `windows/` | Windows 受信アプリ (C# / .NET 8, WinForms) |
 | `mac-driver/` | macOS 仮想オーディオデバイス (AudioServerPlugIn, 逆方向モード用) |
+| `windows/CastMicCam/` | Windows 11 仮想カメラ (Media Foundation メディアソース DLL) |
 | `driver/` | Windows 仮想オーディオドライバ (WDK / PortCls WaveRT) |
 | `docs/` | プロトコル仕様 |
 
@@ -29,6 +30,7 @@ iPhone / Mac を Windows の **マイク** と **スピーカー** として使�
 - **ミュート**: iPhone のロック画面 / Dynamic Island、Windows の Ctrl+Shift+M、トレイから。全端末で連動
 - **音声圧縮 (Opus)**: 通信量 1/10。遅延 (40〜300ms) をスライダーで調整
 - **複数台同時接続** (最大 4 台): 例) iPhone をマイク、Mac をスピーカーに
+- **Web カメラ**: iPhone / Mac のカメラを Windows 11 の「CastMic Camera」として使う (720p / 30fps)
 - **Windows インストーラー**: アプリ・ドライバ・ファイアウォール設定を一括 (CI の Artifacts `CastMic-Setup`)
 
 - 同じネットワーク上の PC を自動検出 (mDNS)。IP 直接入力も可

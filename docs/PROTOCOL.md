@@ -48,6 +48,7 @@ Windows アプリは mDNS で `_castmic._tcp` (サービス名 = PC 名, port 48
 | 7 | SpeakerOpus | Win → 送信側 | Opus 1 パケット (20ms, stereo) |
 | 8 | MuteState | 双方向 | u8 (1 = ミュート)。Win が全端末に配信 |
 | 9 | Roles | 送信側 → Win | JSON `{"mic":bool,"speaker":bool}` |
+| 10 | VideoJpeg | 送信側 → Win | カメラ 1 フレーム (JPEG, 最大 1MB)。camera 役の最新の端末のみ採用 |
 | 4 | Ping | 送信側 → Win → 送信側 | u64 タイムスタンプ(ms)。Windows はそのまま返す (送信側は返さない)。往復遅延の表示に使う |
 
 音声フレームは 10ms 単位 (mono 960 byte / stereo 1920 byte) を推奨。

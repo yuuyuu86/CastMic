@@ -56,13 +56,22 @@ Filename: "{sys}\certutil.exe"; Parameters: "-f -addstore TrustedPublisher ""{ap
 Filename: "{app}\CastMic.exe"; Parameters: "--install-driver ""{app}\driver\CastMicAudio.inf"""; Tasks: driver; Flags: runhidden waituntilterminated; StatusMsg: "ドライバをインストールしています..."
 Filename: "{sys}\bcdedit.exe"; Parameters: "/set testsigning on"; Tasks: testsign; Flags: runhidden
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""CastMic"" dir=in action=allow protocol=TCP localport=48100 program=""{app}\CastMic.exe"" profile=private"; Tasks: firewall; Flags: runhidden
+Filename: "{sys}\regsvr32.exe"; Parameters: "/s ""{app}\CastMicCam.dll"""; Flags: runhidden; StatusMsg: "仮想カメラを登録しています..."; Check: IsWin11
 Filename: "{app}\CastMic.exe"; Description: "CastMic を起動"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
+Filename: "{sys}\regsvr32.exe"; Parameters: "/u /s ""{app}\CastMicCam.dll"""; Flags: runhidden; RunOnceId: "UnregisterCam"
 Filename: "{app}\CastMic.exe"; Parameters: "--remove-driver"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveDriver"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""CastMic"""; Flags: runhidden; RunOnceId: "RemoveFirewall"
 
 [Code]
+function IsWin11(): Boolean;
+var V: TWindowsVersion;
+begin
+  GetWindowsVersionEx(V);
+  Result := V.Build >= 22000;
+end;
+
 function NeedRestart(): Boolean;
 begin
   Result := WizardIsTaskSelected('testsign');
