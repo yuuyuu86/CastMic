@@ -20,8 +20,16 @@ iPhone / Mac を Windows の **マイク** と **スピーカー** として使�
 
 ## 現在の状態
 
-- Apple アプリ / Windows アプリ: 基本機能実装済み (Windows 側は未実機検証)
-- 自作ドライバ: CI でビルド・パッケージ化まで通る。実機未検証 (`driver/README.md`)。動くまでは Windows アプリの **VB-CABLE フォールバック** で動作確認できる。
+| 部分 | ビルド (CI) | 動作確認 |
+|---|---|---|
+| iPhone / Mac アプリ | ✅ | ✅ シミュレータ + Mac 上のサーバーで QR ペアリング・TLS・Opus・ミュート連動を確認 |
+| Opus 相互運用 (CoreAudio ⇔ Concentus) | ✅ | ✅ 両方向でデコード一致を確認 |
+| Mac 仮想オーディオ (mac-driver) | ✅ | ✅ 読み込み・ループバックをテストで確認 (coreaudiod へのインストールは未確認) |
+| Windows アプリ / インストーラー | ✅ | ❌ 実機未確認 |
+| Windows 仮想オーディオドライバ | ✅ | ❌ 実機未確認 (VM 推奨) |
+| Windows 仮想カメラ (Windows 11) | ✅ | ❌ 実機未確認 |
+
+ドライバが動かない場合も、Windows アプリは VB-CABLE があればそれを使って動く。
 
 ## 機能
 
