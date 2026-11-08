@@ -66,7 +66,13 @@ public sealed class CableBridge : IAudioBridge
             SpeakerData?.Invoke(_convBuf.AsSpan(0, n).ToArray());
     }
 
-    public void WriteMic(byte[] pcm) => _mic.AddSamples(pcm, 0, pcm.Length);
+    public int MicBufferMs { get; set; } = 80;
+
+    public void WriteMic(byte[] pcm)
+    {
+        if (_mic.BufferedDuration.TotalMilliseconds > MicBufferMs) _mic.ClearBuffer();
+        _mic.AddSamples(pcm, 0, pcm.Length);
+    }
 
     public void Dispose()
     {

@@ -7,6 +7,8 @@ struct CastMicApp: App {
         WindowGroup {
             ContentView()
                 .environment(session)
+                // iPhone 標準カメラで QR を読んだとき / アプリ内スキャナ
+                .onOpenURL { session.handlePairURL($0) }
         }
     }
 }

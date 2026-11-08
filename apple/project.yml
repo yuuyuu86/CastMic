@@ -13,6 +13,9 @@ targets:
       path: CastMic/Info.plist
       properties:
         NSBonjourServices: [_castmic._tcp]
+        CFBundleURLTypes:
+          - CFBundleURLName: com.yuuyuu86.castmic.pair
+            CFBundleURLSchemes: [castmic]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.yuuyuu86.castmic
@@ -21,6 +24,7 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.0"
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "Windows のマイクとして音声を送信するために使用します。"
+        INFOPLIST_KEY_NSCameraUsageDescription: "Windows に表示された QR コードを読み取るために使用します。"
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Windows PC と接続するために使用します。"
         INFOPLIST_KEY_UIBackgroundModes: audio
         INFOPLIST_KEY_UILaunchScreen_Generation: YES

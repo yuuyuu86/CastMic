@@ -9,4 +9,6 @@ public interface IAudioBridge : IDisposable
     /// 48kHz stereo s16le
     event Action<byte[]>? SpeakerData;
     void Start();
+    /// マイク側の遅延上限 (ms)。これを超えて溜まったら古い分を捨てる
+    int MicBufferMs { get; set; }
 }

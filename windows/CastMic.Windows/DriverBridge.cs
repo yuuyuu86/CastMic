@@ -20,6 +20,8 @@ public sealed class DriverBridge : IAudioBridge
     public string Name => "CastMic ドライバ";
     public event Action<byte[]>? SpeakerData;
     public event Action<string>? Error;
+    /// ドライバ側のリングバッファ (200ms) が上限を持つのでここでは使わない
+    public int MicBufferMs { get; set; } = 80;
 
     DriverBridge(SafeFileHandle h) => _h = h;
 

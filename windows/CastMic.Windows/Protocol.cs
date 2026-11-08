@@ -3,12 +3,24 @@ using System.Buffers.Binary;
 namespace CastMic;
 
 /// docs/PROTOCOL.md 参照
-public enum FrameType : byte { Hello = 1, MicAudio = 2, SpeakerAudio = 3, Ping = 4, AuthFailed = 5 }
+public enum FrameType : byte
+{
+    Hello = 1,
+    MicAudio = 2,      // PCM s16le 48k mono
+    SpeakerAudio = 3,  // PCM s16le 48k stereo
+    Ping = 4,
+    AuthFailed = 5,
+    MicOpus = 6,       // Opus 1 パケット (20ms, mono)
+    SpeakerOpus = 7,   // Opus 1 パケット (20ms, stereo)
+    MuteState = 8,     // u8: 1 = ミュート
+    Roles = 9,         // JSON {"mic":bool,"speaker":bool}
+}
 
 public static class Frame
 {
     public const int HeaderSize = 8;
     public const int SampleRate = 48000;
+    public const int OpusFrame = 960; // 20ms
     public const int MaxPayload = 64 * 1024;
     public const int MaxHelloPayload = 1024;
 

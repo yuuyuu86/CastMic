@@ -12,8 +12,12 @@ final class AudioIO: @unchecked Sendable {
     private var converter: AVAudioConverter?
     private let lock = NSLock()
     private var queuedFrames: AVAudioFrameCount = 0
-    /// 再生キューの上限 (≒ 遅延上限) 120ms
-    private let maxQueued: AVAudioFrameCount = 5760
+    /// 再生キューの上限 (≒ 遅延上限)
+    private var maxQueued: AVAudioFrameCount = 3840
+    /// 遅延上限 (ms)。小さいほど低遅延、大きいほど途切れにくい
+    var bufferMs: Int = 80 {
+        didSet { lock.withLock { maxQueued = AVAudioFrameCount(max(20, bufferMs) * 48) } }
+    }
 
     var micEnabled = true
     var speakerEnabled = true
@@ -128,7 +132,7 @@ final class AudioIO: @unchecked Sendable {
     func playSpeaker(_ data: Data) {
         guard speakerEnabled, lock.withLock({ running }) else { return }
         let frames = AVAudioFrameCount(data.count / 4)
-        guard frames <= maxQueued else { return }
+        guard frames <= lock.withLock({ maxQueued }) else { return }
         guard frames > 0, let buf = AVAudioPCMBuffer(pcmFormat: playFormat, frameCapacity: frames) else { return }
         // 遅延が溜まりすぎたら捨てる
         let over = lock.withLock { queuedFrames + frames > maxQueued }

@@ -7,6 +7,10 @@ enum FrameType: UInt8 {
     case speakerAudio = 3
     case ping = 4
     case authFailed = 5
+    case micOpus = 6
+    case speakerOpus = 7
+    case muteState = 8
+    case roles = 9
 }
 
 enum Frame {
