@@ -12,6 +12,13 @@ final class CastSession {
         let endpoint: NWEndpoint
         /// 証明書の記憶に使うキー (PC 名 or IP)
         let label: String
+        /// 中継経由のとき TLS の宛先名に入れる値
+        var sni: String? = nil
+    }
+
+    /// 中継 Mac 用: 証明書の指紋 → 部屋名 (Windows の RelayConnector.RoomFor と同じ)
+    static func relaySNI(fingerprint: String) -> String {
+        "r\(fingerprint.prefix(32).lowercased()).castmic.invalid"
     }
 
     /// Live Activity などアプリ外の UI から呼ぶため
@@ -130,6 +137,8 @@ final class CastSession {
         let id = UUID()
         let name: String?
         let addresses: [String]
+        /// 中継 Mac ("host:port")
+        let relay: String?
         let fingerprint: String
         let code: String
         let candidates: [Candidate]
@@ -164,12 +173,27 @@ final class CastSession {
             list.append(Candidate(endpoint: .service(name: name, type: "_castmic._tcp", domain: "local.", interface: nil), label: name))
         }
         list += addrs.map { Candidate(endpoint: .hostPort(host: NWEndpoint.Host($0), port: port), label: $0) }
+        // 中継 Mac (直接つながらないとき最後に試す)
+        if let r = q("r"), let (rh, rp) = Self.parseHostPort(r, defaultPort: 48101) {
+            list.append(Candidate(endpoint: .hostPort(host: NWEndpoint.Host(rh), port: rp),
+                                  label: "中継 \(rh)", sni: Self.relaySNI(fingerprint: fp)))
+        }
         guard !list.isEmpty else { status = .error("QR コードに接続先がありません"); return false }
 
         let current = pins
         let conflicts = list.map(\.label).filter { current[$0] != nil && current[$0] != fp }
-        pendingPair = PendingPair(name: name, addresses: addrs, fingerprint: fp, code: code, candidates: list, conflicts: conflicts)
+        pendingPair = PendingPair(name: name, addresses: addrs, relay: q("r").flatMap { Self.parseHostPort($0, defaultPort: 48101) }.map { "\($0.0):\($0.1)" }, fingerprint: fp, code: code, candidates: list, conflicts: conflicts)
         return true
+    }
+
+    /// "host" / "host:port" (IPv4 またはホスト名のみ)
+    static func parseHostPort(_ s: String, defaultPort: UInt16) -> (String, NWEndpoint.Port)? {
+        let parts = s.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count <= 2, let host = parts.first, !host.isEmpty, host.count <= 253,
+              host.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") }) else { return nil }
+        let port = parts.count == 2 ? UInt16(parts[1]).flatMap { NWEndpoint.Port(rawValue: $0) } : NWEndpoint.Port(rawValue: defaultPort)
+        guard let port else { return nil }
+        return (host, port)
     }
 
     /// ユーザーが確認ダイアログで「接続」を選んだ
@@ -215,7 +239,7 @@ final class CastSession {
     private func open() {
         guard candidateIndex < candidates.count else { return }
         let target = candidates[candidateIndex]
-        let c = Connection(endpoint: target.endpoint, pinnedFingerprint: pins[target.label])
+        let c = Connection(endpoint: target.endpoint, pinnedFingerprint: pins[target.label], sni: target.sni)
         #if os(macOS)
         let reverse = reverseMode
         #else

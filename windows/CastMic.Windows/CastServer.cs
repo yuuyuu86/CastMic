@@ -174,15 +174,28 @@ public sealed class CastServer : IDisposable
                 tcp.Dispose();
                 continue;
             }
-            _ = Serve(tcp);
+            tcp.NoDelay = true;
+            _ = Serve(tcp, tcp.GetStream(), tcp.Client.RemoteEndPoint?.ToString() ?? "?");
         }
     }
 
-    async Task Serve(TcpClient tcp)
+    /// 中継 Mac 経由でつながった接続を受け取る (RelayConnector から)。
+    /// 中継は暗号化されたバイト列を流すだけなので、TLS とペアリングは直接接続と同じ
+    public void ServeRelayed(TcpClient tcp, Stream stream, string label)
     {
-        tcp.NoDelay = true;
-        var client = new Client(tcp, tcp.Client.RemoteEndPoint?.ToString() ?? "?");
-        var stream = new SslStream(tcp.GetStream(), false);
+        if (Interlocked.Increment(ref _pending) > MaxPending)
+        {
+            Interlocked.Decrement(ref _pending);
+            tcp.Dispose();
+            return;
+        }
+        _ = Serve(tcp, stream, label);
+    }
+
+    async Task Serve(TcpClient tcp, Stream raw, string endpoint)
+    {
+        var client = new Client(tcp, endpoint);
+        var stream = new SslStream(raw, false);
         bool authed = false;
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, client.Cts.Token);
         var ct = linked.Token;

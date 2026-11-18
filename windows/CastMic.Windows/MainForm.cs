@@ -23,6 +23,11 @@ public sealed class MainForm : Form
     readonly Button _regen = new() { Dock = DockStyle.Right, Width = 110, Text = "コードを再生成" };
     readonly CheckBox _mute = new() { Dock = DockStyle.Top, Height = 28, Padding = new Padding(8, 0, 8, 0), Text = "マイクをミュート (Ctrl+Shift+M)" };
     readonly CheckBox _autostart = new() { Dock = DockStyle.Top, Height = 28, Padding = new Padding(8, 0, 8, 0), Text = "Windows 起動時にバックグラウンドで開始" };
+    readonly Panel _relayRow = new() { Dock = DockStyle.Top, Height = 34, Padding = new Padding(8, 4, 8, 4) };
+    readonly Label _relayLabel = new() { Dock = DockStyle.Left, Width = 120, Text = "中継 Mac:", TextAlign = ContentAlignment.MiddleLeft };
+    readonly TextBox _relayHost = new() { Dock = DockStyle.Fill, PlaceholderText = "例: 172.16.11.105 (空欄 = 使わない)" };
+    readonly Button _relayApply = new() { Dock = DockStyle.Right, Width = 70, Text = "適用" };
+    RelayConnector? _relay;
     readonly CheckBox _allowReverse = new() { Dock = DockStyle.Top, Height = 28, Padding = new Padding(8, 0, 8, 0), Text = "Mac から Windows のマイク / スピーカーを使うことを許可 (逆方向)" };
     readonly ListBox _clients = new() { Dock = DockStyle.Top, Height = 64 };
     readonly TextBox _log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical };
@@ -47,6 +52,10 @@ public sealed class MainForm : Form
         _pairRow.Controls.Add(_regen);
         Controls.Add(_log);
         Controls.Add(_clients);
+        _relayRow.Controls.Add(_relayHost);
+        _relayRow.Controls.Add(_relayLabel);
+        _relayRow.Controls.Add(_relayApply);
+        Controls.Add(_relayRow);
         Controls.Add(_allowReverse);
         Controls.Add(_autostart);
         Controls.Add(_mute);
@@ -64,6 +73,8 @@ public sealed class MainForm : Form
         _autostart.Checked = Registry.CurrentUser.OpenSubKey(RunKey)?.GetValue("CastMic") != null;
         _autostart.CheckedChanged += (_, _) => SetAutostart(_autostart.Checked);
         _mute.CheckedChanged += (_, _) => { if (_server != null) _server.Muted = _mute.Checked; };
+        _relayHost.Text = Settings.RelayHost;
+        _relayApply.Click += (_, _) => { Settings.RelayHost = _relayHost.Text.Trim(); StartRelay(); ShowPairing(); };
         _allowReverse.Checked = Settings.AllowReverse;
         _allowReverse.CheckedChanged += (_, _) =>
         {
@@ -91,7 +102,7 @@ public sealed class MainForm : Form
         {
             UnregisterHotKey(Handle, HotkeyId);
             _tray.Visible = false;
-            _mdns?.Dispose(); _server?.Dispose(); _camera?.Dispose(); _bridge?.Dispose();
+            _relay?.Dispose(); _mdns?.Dispose(); _server?.Dispose(); _camera?.Dispose(); _bridge?.Dispose();
         };
     }
 
@@ -164,8 +175,27 @@ public sealed class MainForm : Form
         _server.Start();
         _status.Text = $"待機中 (TCP {CastServer.Port})";
 
+        StartRelay();
         _mdns = new MdnsAdvertiser();
         AppendLog(_mdns.Start(CastServer.Port) ? $"自動検出を有効化: {Environment.MachineName}" : "自動検出 (mDNS) を開始できませんでした。IP で接続してください。");
+    }
+
+    /// 中継 Mac に待ち受け用の接続を張る (iPhone と PC が直接つながらないネットワーク用)
+    void StartRelay()
+    {
+        _relay?.Dispose();
+        _relay = null;
+        var host = Settings.RelayHost;
+        if (_server == null || _cert == null || string.IsNullOrWhiteSpace(host)) return;
+        if (!RelayConnector.TryParse(host, out var h, out var port))
+        {
+            AppendLog($"中継 Mac のアドレスが不正です: {host}");
+            return;
+        }
+        _relay = new RelayConnector(h, port, RelayConnector.RoomFor(ServerIdentity.Fingerprint(_cert)), _server);
+        _relay.Log += AppendLog;
+        _relay.Start();
+        AppendLog($"中継 Mac {h}:{port} を使います。");
     }
 
     void Fail(string status, string detail)
@@ -191,6 +221,7 @@ public sealed class MainForm : Form
         var fp = ServerIdentity.Fingerprint(_cert);
         var addrs = LocalAddresses().Select(a => a.addr).ToList();
         var url = $"castmic://pair?n={Uri.EscapeDataString(Environment.MachineName)}&a={string.Join(",", addrs)}&p={CastServer.Port}&c={_codeValue}&f={fp}";
+        if (RelayConnector.TryParse(Settings.RelayHost, out var rh, out var rp)) url += $"&r={Uri.EscapeDataString($"{rh}:{rp}")}";
         using var gen = new QRCodeGenerator();
         using var data = gen.CreateQrCode(url, QRCodeGenerator.ECCLevel.M);
         var png = new PngByteQRCode(data).GetGraphic(6);

@@ -31,13 +31,15 @@ final class Connection: @unchecked Sendable {
     var peerFingerprint: String? { peer.lock.withLock { peer.fingerprint } }
 
     /// - Parameter pinnedFingerprint: 記憶済みの指紋。nil なら初回接続として任意の証明書を受け入れる
-    init(endpoint: NWEndpoint, pinnedFingerprint: String?) {
+    /// - Parameter sni: 中継経由のとき、中継が部屋を見分けるための TLS 宛先名
+    init(endpoint: NWEndpoint, pinnedFingerprint: String?, sni: String? = nil) {
         let tcp = NWProtocolTCP.Options()
         tcp.noDelay = true
         tcp.connectionTimeout = 5
         let tls = NWProtocolTLS.Options()
         let sec = tls.securityProtocolOptions
         sec_protocol_options_set_min_tls_protocol_version(sec, .TLSv12)
+        if let sni { sec_protocol_options_set_tls_server_name(sec, sni) }
         // 注意: NWParameters 作成時にオプションがコピーされるので、検証ブロックはそれより前に登録する
         let peer = self.peer
         sec_protocol_options_set_verify_block(sec, { _, trust, complete in

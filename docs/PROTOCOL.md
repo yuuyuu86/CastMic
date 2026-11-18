@@ -65,3 +65,15 @@ Windows アプリは mDNS で `_castmic._tcp` (サービス名 = PC 名, port 48
 
 `castmic://pair?n=<PC名>&a=<IP,IP,...>&p=48100&c=<6桁>&f=<証明書 SHA-256 16進>`
 送信側は f を最初から信頼済みとして記憶し、PC 名 (Bonjour) → 各 IP の順に 5 秒ずつ試す。
+
+## 中継 Mac
+
+iPhone と PC が直接つながらないネットワーク (学校の Wi-Fi と有線 LAN が分かれている等) 用。Mac の CastMic で「この Mac を中継にする」をオンにすると TCP 48101 で待ち受ける。
+
+1. PC → 中継: `CMRH <room>\n` を送って待機 (room = 証明書 SHA-256 指紋の先頭 32 桁, 小文字)。常に 2 本待たせておく
+2. 端末 → 中継: 普通に TLS を始め、SNI に `r<room>.castmic.invalid` を入れる
+3. 中継は ClientHello の SNI だけを読み、同じ room の待機中 PC に `0x01` を送ってから両方向を素通しする
+4. PC は `0x01` を受け取ったら、以降は直接接続と同じ (TLS サーバー → ペアリング)
+
+中継は中身を復号できない。偽の PC が room を名乗っても、端末は証明書の指紋で弾く。
+QR には `r=<host:port>` が入り、端末は PC 名 → 各 IP → 中継 の順に試す。
