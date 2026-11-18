@@ -4,6 +4,7 @@
 ;   ..\..\out\driver\   … CastMicAudio.inf/.sys/.cat
 ;   ..\..\out\driver\CastMicAudio.cer … テスト署名用証明書
 
+#define CertThumb GetEnv("CASTMIC_CERT_THUMB")
 #define AppVersion GetEnv("CASTMIC_VERSION")
 #if AppVersion == ""
   #define AppVersion "0.1.0"
@@ -60,6 +61,10 @@ Filename: "{sys}\regsvr32.exe"; Parameters: "/s ""{app}\CastMicCam.dll"""; Flags
 Filename: "{app}\CastMic.exe"; Description: "CastMic を起動"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
+#if CertThumb != ""
+Filename: "{sys}\certutil.exe"; Parameters: "-delstore Root {#CertThumb}"; Flags: runhidden; RunOnceId: "RemoveCertRoot"
+Filename: "{sys}\certutil.exe"; Parameters: "-delstore TrustedPublisher {#CertThumb}"; Flags: runhidden; RunOnceId: "RemoveCertPublisher"
+#endif
 Filename: "{sys}\regsvr32.exe"; Parameters: "/u /s ""{app}\CastMicCam.dll"""; Flags: runhidden; RunOnceId: "UnregisterCam"
 Filename: "{app}\CastMic.exe"; Parameters: "--remove-driver"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveDriver"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""CastMic"""; Flags: runhidden; RunOnceId: "RemoveFirewall"

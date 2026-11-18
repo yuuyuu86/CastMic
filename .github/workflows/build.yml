@@ -72,6 +72,9 @@ jobs:
       - name: Build installer
         shell: pwsh
         run: |
+          # アンインストール時にテスト署名の証明書を消せるよう、指紋をインストーラーに埋め込む
+          $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 (Resolve-Path out/driver/CastMicAudio.cer)
+          $env:CASTMIC_CERT_THUMB = $cert.Thumbprint
           choco install innosetup -y --no-progress
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" windows/installer/CastMic.iss
 

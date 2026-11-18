@@ -14,23 +14,40 @@ public sealed class MainForm : Form
     const int HotkeyId = 1, WM_HOTKEY = 0x0312;
     const uint MOD_CONTROL = 0x2, MOD_SHIFT = 0x4, MOD_NOREPEAT = 0x4000, VK_M = 0x4D;
 
-    readonly Label _status = new() { Dock = DockStyle.Top, Height = 28, Padding = new Padding(8, 6, 8, 0) };
-    readonly PictureBox _qr = new() { Dock = DockStyle.Left, Width = 180, SizeMode = PictureBoxSizeMode.Zoom };
-    readonly Label _info = new() { Dock = DockStyle.Fill, Padding = new Padding(8, 4, 8, 0) };
-    readonly Panel _top = new() { Dock = DockStyle.Top, Height = 180 };
-    readonly Panel _pairRow = new() { Dock = DockStyle.Top, Height = 40, Padding = new Padding(8, 4, 8, 4) };
-    readonly Label _code = new() { Dock = DockStyle.Fill, Font = new Font(FontFamily.GenericMonospace, 14, FontStyle.Bold), TextAlign = ContentAlignment.MiddleLeft };
-    readonly Button _regen = new() { Dock = DockStyle.Right, Width = 110, Text = "コードを再生成" };
-    readonly CheckBox _mute = new() { Dock = DockStyle.Top, Height = 28, Padding = new Padding(8, 0, 8, 0), Text = "マイクをミュート (Ctrl+Shift+M)" };
-    readonly CheckBox _autostart = new() { Dock = DockStyle.Top, Height = 28, Padding = new Padding(8, 0, 8, 0), Text = "Windows 起動時にバックグラウンドで開始" };
-    readonly Panel _relayRow = new() { Dock = DockStyle.Top, Height = 34, Padding = new Padding(8, 4, 8, 4) };
-    readonly Label _relayLabel = new() { Dock = DockStyle.Left, Width = 120, Text = "中継 Mac:", TextAlign = ContentAlignment.MiddleLeft };
+    static readonly Font UiFont = new("Yu Gothic UI", 10f);
+    static readonly Font TitleFont = new("Yu Gothic UI", 13f, FontStyle.Bold);
+    static readonly Color Accent = Color.FromArgb(0x22, 0x63, 0xEB);
+
+    // ヘッダー (状態)
+    readonly Panel _header = new() { Dock = DockStyle.Top, Height = 56, Padding = new Padding(16, 10, 16, 10), BackColor = Color.FromArgb(0xF3, 0xF4, 0xF6) };
+    readonly Label _dot = new() { Dock = DockStyle.Left, Width = 22, Text = "●", ForeColor = Color.Gray, TextAlign = ContentAlignment.MiddleLeft, Font = new Font("Yu Gothic UI", 14f) };
+    readonly Label _status = new() { Dock = DockStyle.Fill, Font = TitleFont, TextAlign = ContentAlignment.MiddleLeft, Text = "起動中…" };
+
+    readonly TabControl _tabs = new() { Dock = DockStyle.Fill, Padding = new Point(14, 6) };
+
+    // 接続タブ
+    readonly PictureBox _qr = new() { Dock = DockStyle.Left, Width = 230, SizeMode = PictureBoxSizeMode.Zoom, Margin = new Padding(0) };
+    readonly Label _info = new() { Dock = DockStyle.Fill, Padding = new Padding(14, 6, 6, 0) };
+    readonly Panel _top = new() { Dock = DockStyle.Top, Height = 236, Padding = new Padding(4) };
+    readonly Panel _pairRow = new() { Dock = DockStyle.Top, Height = 52, Padding = new Padding(8, 8, 8, 8) };
+    readonly Label _code = new() { Dock = DockStyle.Fill, Font = new Font("Consolas", 18f, FontStyle.Bold), TextAlign = ContentAlignment.MiddleLeft };
+    readonly Button _regen = new() { Dock = DockStyle.Right, Width = 130, Text = "コードを再生成" };
+
+    // 設定タブ
+    readonly CheckBox _mute = new() { Dock = DockStyle.Top, Height = 34, Text = "マイクをミュート (Ctrl+Shift+M)" };
+    readonly CheckBox _autostart = new() { Dock = DockStyle.Top, Height = 34, Text = "Windows 起動時にバックグラウンドで開始" };
+    readonly Panel _relayRow = new() { Dock = DockStyle.Top, Height = 40, Padding = new Padding(0, 6, 0, 4) };
+    readonly Label _relayLabel = new() { Dock = DockStyle.Left, Width = 90, Text = "中継 Mac", TextAlign = ContentAlignment.MiddleLeft };
     readonly TextBox _relayHost = new() { Dock = DockStyle.Fill, PlaceholderText = "例: 172.16.11.105 (空欄 = 使わない)" };
     readonly Button _relayApply = new() { Dock = DockStyle.Right, Width = 70, Text = "適用" };
+    readonly Label _relayHelp = new() { Dock = DockStyle.Top, Height = 44, ForeColor = Color.DimGray, Text = "iPhone と PC が直接つながらないネットワーク (学校の Wi-Fi と有線 LAN など) では、Mac の CastMic で「この Mac を中継にする」をオンにして、そのアドレスを入れてください。" };
     RelayConnector? _relay;
-    readonly CheckBox _allowReverse = new() { Dock = DockStyle.Top, Height = 28, Padding = new Padding(8, 0, 8, 0), Text = "Mac から Windows のマイク / スピーカーを使うことを許可 (逆方向)" };
-    readonly ListBox _clients = new() { Dock = DockStyle.Top, Height = 64 };
-    readonly TextBox _log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical };
+    readonly CheckBox _allowReverse = new() { Dock = DockStyle.Top, Height = 34, Text = "Mac から Windows のマイク / スピーカーを使うことを許可 (逆方向)" };
+
+    // 端末とログタブ
+    readonly ListBox _clients = new() { Dock = DockStyle.Top, Height = 96, IntegralHeight = false };
+    readonly Label _logTitle = new() { Dock = DockStyle.Top, Height = 28, Text = "ログ", TextAlign = ContentAlignment.BottomLeft, ForeColor = Color.DimGray };
+    readonly TextBox _log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Font = new Font("Consolas", 9f), BackColor = SystemColors.Window };
     readonly NotifyIcon _tray = new() { Icon = TrayIcons.Idle, Text = "CastMic", Visible = true };
     readonly bool _startHidden = Environment.GetCommandLineArgs().Contains("--background");
     IAudioBridge? _bridge;
@@ -45,23 +62,47 @@ public sealed class MainForm : Form
     {
         Text = "CastMic";
         using (var s = typeof(MainForm).Assembly.GetManifestResourceStream("CastMic.ico")) if (s != null) Icon = new Icon(s);
-        Width = 520; Height = 600;
+        Font = UiFont;
+        AutoScaleMode = AutoScaleMode.Dpi;
+        ClientSize = new Size(560, 520);
+        MinimumSize = new Size(520, 480);
+        StartPosition = FormStartPosition.CenterScreen;
+
+        // ヘッダー
+        _header.Controls.Add(_status);
+        _header.Controls.Add(_dot);
+
+        // 接続タブ
         _top.Controls.Add(_info);
         _top.Controls.Add(_qr);
         _pairRow.Controls.Add(_code);
         _pairRow.Controls.Add(_regen);
-        Controls.Add(_log);
-        Controls.Add(_clients);
+        var connect = new TabPage("接続") { Padding = new Padding(10) };
+        connect.Controls.Add(_pairRow);
+        connect.Controls.Add(_top);
+
+        // 設定タブ (上から順に並ぶよう逆順に追加)
+        var settings = new TabPage("設定") { Padding = new Padding(16, 12, 16, 12) };
         _relayRow.Controls.Add(_relayHost);
         _relayRow.Controls.Add(_relayLabel);
         _relayRow.Controls.Add(_relayApply);
-        Controls.Add(_relayRow);
-        Controls.Add(_allowReverse);
-        Controls.Add(_autostart);
-        Controls.Add(_mute);
-        Controls.Add(_pairRow);
-        Controls.Add(_top);
-        Controls.Add(_status);
+        settings.Controls.Add(_relayHelp);
+        settings.Controls.Add(_relayRow);
+        settings.Controls.Add(new Label { Dock = DockStyle.Top, Height = 12 });
+        settings.Controls.Add(_allowReverse);
+        settings.Controls.Add(_autostart);
+        settings.Controls.Add(_mute);
+
+        // 端末とログタブ
+        var devices = new TabPage("端末とログ") { Padding = new Padding(10) };
+        devices.Controls.Add(_log);
+        devices.Controls.Add(_logTitle);
+        devices.Controls.Add(_clients);
+        devices.Controls.Add(new Label { Dock = DockStyle.Top, Height = 24, Text = "接続中の端末", TextAlign = ContentAlignment.TopLeft, ForeColor = Color.DimGray });
+
+        _tabs.TabPages.AddRange([connect, settings, devices]);
+        Controls.Add(_tabs);
+        Controls.Add(_header);
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("開く", null, (_, _) => ShowWindow());
@@ -155,7 +196,7 @@ public sealed class MainForm : Form
             _hasClients = list.Count > 0;
             _clients.Items.Clear();
             foreach (var l in list) _clients.Items.Add(l);
-            _status.Text = _hasClients ? $"接続中: {list.Count} 台" : $"待機中 (TCP {CastServer.Port})";
+            _status.Text = _hasClients ? $"接続中: {list.Count} 台" : "待機中 — iPhone で QR を読んでください";
             UpdateTray();
         });
         _server.MuteChanged += muted => Ui(() =>
@@ -173,7 +214,7 @@ public sealed class MainForm : Form
         else AppendLog(_camera.Error ?? "仮想カメラを開始できませんでした。");
 
         _server.Start();
-        _status.Text = $"待機中 (TCP {CastServer.Port})";
+        _status.Text = "待機中 — iPhone で QR を読んでください";
 
         StartRelay();
         _mdns = new MdnsAdvertiser();
@@ -201,6 +242,8 @@ public sealed class MainForm : Form
     void Fail(string status, string detail)
     {
         _status.Text = status;
+        _dot.ForeColor = Color.FromArgb(0xD0, 0x30, 0x30);
+        _tabs.SelectedIndex = 2; // ログを見せる
         AppendLog(detail);
         ShowWindow();
     }
@@ -209,6 +252,7 @@ public sealed class MainForm : Form
     {
         var muted = _server?.Muted == true;
         _tray.Icon = muted ? TrayIcons.Muted : _hasClients ? TrayIcons.Live : TrayIcons.Idle;
+        _dot.ForeColor = muted ? Color.FromArgb(0xD0, 0x30, 0x30) : _hasClients ? Color.FromArgb(0x2E, 0xA0, 0x43) : Color.Gray;
         _tray.Text = muted ? "CastMic - ミュート中" : _hasClients ? "CastMic - 接続中" : "CastMic - 待機中";
     }
 
