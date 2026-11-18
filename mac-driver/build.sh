@@ -8,5 +8,12 @@ clang -bundle -O2 -Wall -Wextra -Werror -arch arm64 -arch x86_64 -mmacosx-versio
     -framework CoreAudio -framework CoreFoundation \
     -o "$OUT/MacOS/CastMicHAL" CastMicHAL.c
 cp Info.plist "$OUT/Info.plist"
-codesign --force --sign - build/CastMicHAL.driver
+# CASTMIC_SIGN_ID に Developer ID を入れると正式署名 (公証用に Hardened Runtime + タイムスタンプ付き)
+# 例: CASTMIC_SIGN_ID="Developer ID Application: Yasuyo Mizutani (2PBVY8C5TF)" ./build.sh
+if [ -n "${CASTMIC_SIGN_ID:-}" ]; then
+    codesign --force --options runtime --timestamp --sign "$CASTMIC_SIGN_ID" build/CastMicHAL.driver
+else
+    codesign --force --sign - build/CastMicHAL.driver
+fi
+codesign --verify --strict build/CastMicHAL.driver
 echo "built: $(pwd)/build/CastMicHAL.driver"
