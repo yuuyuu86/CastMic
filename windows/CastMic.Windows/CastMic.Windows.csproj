@@ -7,8 +7,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>CastMic</AssemblyName>
+    <ApplicationIcon>CastMic.ico</ApplicationIcon>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="CastMic.ico" LogicalName="CastMic.ico" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="Concentus" Version="2.2.2" />

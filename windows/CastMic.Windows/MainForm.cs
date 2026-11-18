@@ -44,7 +44,7 @@ public sealed class MainForm : Form
     public MainForm()
     {
         Text = "CastMic";
-        Icon = TrayIcons.Live;
+        using (var s = typeof(MainForm).Assembly.GetManifestResourceStream("CastMic.ico")) if (s != null) Icon = new Icon(s);
         Width = 520; Height = 600;
         _top.Controls.Add(_info);
         _top.Controls.Add(_qr);
