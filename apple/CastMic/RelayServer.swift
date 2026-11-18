@@ -38,7 +38,7 @@ final class RelayServer {
                 Task { @MainActor in
                     switch st {
                     case .ready: self?.running = true; self?.error = nil
-                    case .failed(let e): self?.running = false; self?.error = e.localizedDescription; self?.stop()
+                    case .failed(let e): self?.running = false; self?.error = Self.friendly(e); self?.stop()
                     default: break
                     }
                 }
@@ -58,6 +58,13 @@ final class RelayServer {
         listener = nil
         running = false
         core.closeAll()
+    }
+
+    private static func friendly(_ e: NWError) -> String {
+        if case .posix(let code) = e, code == .EADDRINUSE {
+            return "ポート \(port) が他のアプリに使われています。CastMic が 2 つ起動していないか確認し、スイッチを一度オフにしてからオンにしてください。"
+        }
+        return e.localizedDescription
     }
 
     /// 表示用: この Mac の IPv4 アドレス
