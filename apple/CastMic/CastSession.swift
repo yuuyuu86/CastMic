@@ -2,6 +2,23 @@ import Foundation
 import Network
 import Observation
 
+/// Cross-thread send gate; microphone capture callbacks read this without hopping to MainActor.
+private final class MicSendGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var enabled = false
+    private var lastMeterUpdate: TimeInterval = 0
+
+    var isEnabled: Bool { lock.withLock { enabled } }
+    func setEnabled(_ value: Bool) { lock.withLock { enabled = value } }
+    func shouldUpdateMeter(at time: TimeInterval) -> Bool {
+        lock.withLock {
+            guard time - lastMeterUpdate >= 0.1 else { return false }
+            lastMeterUpdate = time
+            return true
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class CastSession {
@@ -87,6 +104,8 @@ final class CastSession {
     private var connection: Connection?
     private var audio: AudioIO?
     private var encoder: OpusEncoder?
+    private let micSendQueue = DispatchQueue(label: "castmic.mic-send", qos: .userInteractive)
+    private let micSendGate = MicSendGate()
     private var decoder: OpusDecoder?
     private var camera: CameraStreamer?
     private var pingTask: Task<Void, Never>?
@@ -230,6 +249,7 @@ final class CastSession {
 
     func setMuted(_ m: Bool) {
         muted = m
+        micSendGate.setEnabled(!m && status == .connected)
         connection?.send(.muteState, Data([m ? 1 : 0]))
         onChange?()
     }
@@ -255,15 +275,20 @@ final class CastSession {
         encoder = enc
         decoder = dec
         let wantOpus = enc != nil && dec != nil
+        micSendGate.setEnabled(false)
+        let micQueue = micSendQueue
+        let sendGate = micSendGate
 
         a.onMic = { [weak c, weak self] data in
-            let lvl = Self.rms(data)
-            Task { @MainActor in
-                guard let self else { return }
-                self.micLevel = lvl
-                guard !self.muted, self.status == .connected else { return }
-                if self.codecName == "Opus", let enc = self.encoder {
-                    for p in enc.encode(data) { c?.send(.micOpus, p) }
+            micQueue.async { [weak c, weak self] in
+                let now = ProcessInfo.processInfo.systemUptime
+                if sendGate.shouldUpdateMeter(at: now) {
+                    let level = Self.rms(data)
+                    Task { @MainActor [weak self] in self?.micLevel = level }
+                }
+                guard sendGate.isEnabled else { return }
+                if wantOpus, let enc {
+                    for packet in enc.encode(data) { c?.send(.micOpus, packet) }
                 } else {
                     c?.send(.micAudio, data)
                 }
@@ -283,7 +308,12 @@ final class CastSession {
                 Task { @MainActor in self?.fail("Windows 側で逆方向が許可されていません。Windows の CastMic で「Mac から Windows のマイク / スピーカーを使うことを許可」をオンにしてください。") }
             case .muteState:
                 let m = payload.first == 1
-                Task { @MainActor in self?.muted = m; self?.onChange?() }
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.muted = m
+                    self.micSendGate.setEnabled(!m && self.status == .connected)
+                    self.onChange?()
+                }
             case .hello:
                 let obj = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any]
                 Task { @MainActor in self?.authSucceeded(obj ?? [:]) }
@@ -306,6 +336,7 @@ final class CastSession {
     }
 
     private func teardown() {
+        micSendGate.setEnabled(false)
         stopCamera()
         pingTask?.cancel(); pingTask = nil
         audio?.stop(); audio = nil
@@ -334,6 +365,7 @@ final class CastSession {
             do {
                 try audio?.start()
                 status = .connected
+                micSendGate.setEnabled(!muted)
                 everConnected = true
                 startPing()
                 updateCamera()

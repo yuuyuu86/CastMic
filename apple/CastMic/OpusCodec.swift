@@ -18,7 +18,8 @@ enum Opus {
 }
 
 /// s16le PCM を溜めて 20ms ごとに Opus パケットにする
-final class OpusEncoder {
+/// Owned by CastSession's serial microphone-send queue after connection setup.
+final class OpusEncoder: @unchecked Sendable {
     private let pcm: AVAudioFormat
     private let opus: AVAudioFormat
     private let converter: AVAudioConverter

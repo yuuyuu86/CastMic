@@ -17,6 +17,10 @@ final class AudioIO: @unchecked Sendable {
     private var converter: AVAudioConverter?
     private let lock = NSLock()
     private var queuedFrames: AVAudioFrameCount = 0
+    private var playbackGeneration: UInt64 = 0
+    private let speakerQueue = DispatchQueue(label: "castmic.speaker-playback", qos: .userInteractive)
+    private var pendingSpeaker: [Data] = []
+    private var speakerPlaybackStarted = false
     /// 再生キューの上限 (≒ 遅延上限)
     private var maxQueued: AVAudioFrameCount = 3840
     /// 遅延上限 (ms)。小さいほど低遅延、大きいほど途切れにくい
@@ -134,6 +138,10 @@ final class AudioIO: @unchecked Sendable {
     }
 
     private func stopEngine() {
+        speakerQueue.sync {
+            pendingSpeaker.removeAll(keepingCapacity: true)
+            speakerPlaybackStarted = false
+        }
         if let cap = captureEngine {
             cap.inputNode.removeTap(onBus: 0)
             cap.stop()
@@ -144,7 +152,11 @@ final class AudioIO: @unchecked Sendable {
         player.stop()
         engine.stop()
         if engine.attachedNodes.contains(player) { engine.detach(player) }
-        lock.withLock { queuedFrames = 0; running = false }
+        lock.withLock {
+            playbackGeneration &+= 1
+            queuedFrames = 0
+            running = false
+        }
     }
 
     private func handleMic(_ buf: AVAudioPCMBuffer) {
@@ -170,13 +182,36 @@ final class AudioIO: @unchecked Sendable {
 
     /// Windows から届いたスピーカー音声を再生キューへ
     func playSpeaker(_ data: Data) {
+        speakerQueue.async { [weak self] in
+            guard let self else { return }
+            self.pendingSpeaker.append(data)
+            if !self.speakerPlaybackStarted {
+                // Start with 40 ms queued to absorb small Wi-Fi and decode jitter.
+                guard self.pendingSpeaker.count >= 3 else { return }
+                self.scheduleSpeaker(self.pendingSpeaker.removeFirst())
+                self.scheduleSpeaker(self.pendingSpeaker.removeFirst())
+                self.speakerPlaybackStarted = true
+            } else if self.pendingSpeaker.count >= 2 {
+                self.scheduleSpeaker(self.pendingSpeaker.removeFirst())
+            }
+        }
+    }
+
+    private func scheduleSpeaker(_ data: Data) {
         guard speakerEnabled, lock.withLock({ running }) else { return }
         let frames = AVAudioFrameCount(data.count / 4)
         guard frames <= lock.withLock({ maxQueued }) else { return }
         guard frames > 0, let buf = AVAudioPCMBuffer(pcmFormat: playFormat, frameCapacity: frames) else { return }
-        // 遅延が溜まりすぎたら捨てる
+        // If playback fell behind, flush stale audio and resume with the newest frame.
         let over = lock.withLock { queuedFrames + frames > maxQueued }
-        if over { return }
+        if over {
+            player.stop()
+            lock.withLock {
+                playbackGeneration &+= 1
+                queuedFrames = 0
+            }
+            player.play()
+        }
         buf.frameLength = frames
         data.withUnsafeBytes { raw in
             let s = raw.bindMemory(to: Int16.self)
@@ -186,10 +221,16 @@ final class AudioIO: @unchecked Sendable {
                 r[i] = Float(Int16(littleEndian: s[i * 2 + 1])) / 32768
             }
         }
-        lock.withLock { queuedFrames += frames }
+        let generation = lock.withLock { () -> UInt64 in
+            queuedFrames += frames
+            return playbackGeneration
+        }
         player.scheduleBuffer(buf) { [weak self] in
             guard let self else { return }
-            self.lock.withLock { self.queuedFrames -= min(self.queuedFrames, frames) }
+            self.lock.withLock {
+                guard self.playbackGeneration == generation else { return }
+                self.queuedFrames -= min(self.queuedFrames, frames)
+            }
         }
     }
 }
